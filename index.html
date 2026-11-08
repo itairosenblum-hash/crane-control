@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>בקרת מנופים</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: { sans: ["Heebo", "system-ui", "sans-serif"] } } } };
+  </script>
+  <style type="text/tailwindcss">
+    @layer base {
+      html { -webkit-tap-highlight-color: transparent; }
+      body { @apply font-sans bg-slate-100 text-slate-900 antialiased; }
+      input[type="range"] { accent-color: #f59e0b; }
+    }
+    @layer components {
+      .card { @apply bg-white rounded-2xl shadow-sm border border-slate-200 p-4; }
+      .sec-title { @apply text-lg font-extrabold mb-3 text-slate-800; }
+      .lbl { @apply block text-sm font-bold text-slate-600 mb-1; }
+      .inp { @apply w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg focus:outline-none focus:ring-4 focus:ring-amber-200 focus:border-amber-500; }
+      .inp-sm { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-500; }
+      .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-bold transition select-none active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none; }
+      .btn-sm { @apply px-3 py-2 text-sm rounded-lg; }
+      .btn-xl { @apply w-full text-xl py-5 rounded-2xl shadow-lg; }
+      .btn-primary { @apply bg-amber-500 text-slate-900 hover:bg-amber-400; }
+      .btn-dark { @apply bg-slate-900 text-white hover:bg-slate-800; }
+      .btn-ghost { @apply bg-slate-100 text-slate-700 hover:bg-slate-200; }
+      .btn-danger { @apply bg-red-600 text-white hover:bg-red-500; }
+      .btn-success { @apply bg-emerald-600 text-white hover:bg-emerald-500; }
+      .badge { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold whitespace-nowrap; }
+
+      /* מתג תקין / לא תקין */
+      .tgl { @apply min-w-[5.5rem] rounded-xl border-2 border-slate-300 bg-white px-3 py-3 font-bold text-slate-600 transition; }
+      [data-value="1"] .tgl[data-val="1"] { @apply bg-emerald-600 border-emerald-600 text-white; }
+      [data-value="0"] .tgl[data-val="0"] { @apply bg-red-600 border-red-600 text-white; }
+
+      /* צ'קליסט סגירה */
+      .chk { @apply w-full flex items-center gap-3 rounded-2xl border-2 border-slate-300 bg-white p-4 text-lg font-bold text-slate-700 transition; }
+      .chk .box { @apply w-8 h-8 shrink-0 rounded-lg border-2 border-slate-400 flex items-center justify-center text-white; }
+      .chk[aria-pressed="true"] { @apply border-emerald-600 bg-emerald-50 text-emerald-900; }
+      .chk[aria-pressed="true"] .box { @apply bg-emerald-600 border-emerald-600; }
+
+      /* בחירת מנוף */
+      .crane-opt { @apply rounded-2xl border-2 border-slate-300 bg-white p-4 text-center transition; }
+      .crane-opt[aria-pressed="true"] { @apply border-amber-500 bg-amber-50 ring-4 ring-amber-200; }
+
+      .tab { @apply px-4 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-white whitespace-nowrap; }
+      .tab[aria-selected="true"] { @apply bg-white text-slate-900 shadow-sm; }
+      .th { @apply text-right font-bold text-slate-500 text-xs px-3 py-2 bg-slate-50 border-b border-slate-200 whitespace-nowrap; }
+      .td { @apply px-3 py-2 border-b border-slate-100 align-top text-sm; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="min-h-screen flex items-center justify-center">
+      <div class="w-10 h-10 border-4 border-slate-300 border-t-amber-500 rounded-full animate-spin"></div>
+    </div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" class="fixed bottom-4 inset-x-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
+
+  <script type="module" src="js/ui.js"></script>
+</body>
+</html>

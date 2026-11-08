@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- פונקציות עזר ----------
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function approved() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && me().status == 'approved';
+    }
+    function role() { return me().role; }
+    function isAdmin() { return approved() && role() == 'admin'; }
+    function isManager() { return approved() && role() in ['admin', 'site_manager']; }
+    function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // ---------- משתמשים ----------
+    match /users/{uid} {
+      // משתמש קורא את עצמו; מנהל מערך קורא את כולם
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      // בקשת הרשאה: רק עבור עצמו, ורק בסטטוס ממתין וללא שיוך
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'pending'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.assignedSite == ''
+        && request.resource.data.requestedRole in ['operator', 'site_manager'];
+
+      // רק מנהל מערך משנה תפקיד/סטטוס/אתר; משתמש יכול לעדכן רק שם וטלפון
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'updatedAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- מנופים ----------
+    match /cranes/{craneId} {
+      allow read: if approved();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        // מנהל אתר / מפעיל באתר המנוף: רק שינוי סטטוס הפעלה (פתיחה/סגירה)
+        || (approved()
+            && onlyKeys(['currentStatus', 'activeOperationId', 'updatedAt'])
+            && request.resource.data.currentStatus in ['available', 'in_use', 'maintenance']
+            && (role() == 'site_manager' || resource.data.site == me().assignedSite));
+    }
+
+    // ---------- הפעלות ----------
+    match /operations/{opId} {
+      allow read: if approved()
+        && (role() in ['admin', 'site_manager'] || resource.data.operatorId == request.auth.uid);
+
+      // מפעיל פותח הפעלה רק בשמו ובאתר שלו
+      allow create: if approved()
+        && request.resource.data.operatorId == request.auth.uid
+        && request.resource.data.status == 'active'
+        && request.resource.data.site == me().assignedSite;
+
+      allow update: if isAdmin()
+        // המפעיל סוגר את ההפעלה שלו
+        || (approved()
+            && resource.data.operatorId == request.auth.uid
+            && resource.data.status == 'active'
+            && request.resource.data.status == 'completed'
+            && onlyKeys(['status', 'endTime', 'postCheck']))
+        // מנהל אתר — סגירה כפויה
+        || (isManager()
+            && resource.data.status == 'active'
+            && request.resource.data.status == 'completed'
+            && onlyKeys(['status', 'endTime', 'postCheck']));
+
+      allow delete: if isAdmin();
+    }
+  }
+}

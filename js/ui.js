@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082316";
-import * as api from "./firestore.js?v=202611082316";
-import * as push from "./push.js?v=202611082316";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082316";
+import { login, logout, onAuth } from "./auth.js?v=202611082320";
+import * as api from "./firestore.js?v=202611082320";
+import * as push from "./push.js?v=202611082320";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082320";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -537,6 +537,12 @@ function renderBlocked() {
 const LEVEL_CHIPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const LOC_KEY = "crane-control:locations";
 const recentLocations = () => { try { return JSON.parse(localStorage.getItem(LOC_KEY) || "[]"); } catch { return []; } };
+const PARK_KEY = "crane-control:parking";
+const recentParking = () => { try { return JSON.parse(localStorage.getItem(PARK_KEY) || "[]"); } catch { return []; } };
+function rememberParking(loc) {
+  if (state.viewAs) return;
+  try { localStorage.setItem(PARK_KEY, JSON.stringify([loc, ...recentParking().filter((x) => x !== loc)].slice(0, 4))); } catch { /* ignore */ }
+}
 function rememberLocation(loc) {
   try { localStorage.setItem(LOC_KEY, JSON.stringify([loc, ...recentLocations().filter((x) => x !== loc)].slice(0, 4))); } catch { /* ignore */ }
 }
@@ -818,6 +824,7 @@ function mountActive(root, v) {
 // ----- סגירה -----
 function mountPostCheck(root, v) {
   const op = v.op;
+  const pc = op.preCheck || {};
   Object.assign(v, { mode: "close", opId: op.id });
   const checks = {};
   root.innerHTML = `
@@ -829,7 +836,14 @@ function mountPostCheck(root, v) {
     </div>
     <section class="group-list" id="post-list">
       ${POST_ITEMS.map(([k, l]) => `
-        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">${ICONS.check}</span><span>${l}</span></button>`).join("")}
+        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">${ICONS.check}</span><span>${esc(l.replace("מנוף", op.craneKind || "מנוף"))}</span></button>
+        ${k === "craneParked" ? `
+        <div id="park-row" class="px-4 pb-4 pt-1 bg-white" hidden>
+          <label class="lbl" for="f-park">איפה ${esc(op.craneKind || "המנוף")} חונה?</label>
+          <input id="f-park" class="inp" placeholder="לדוגמה: חניה צפונית, רציף 2" autocomplete="off">
+          <div class="flex flex-wrap gap-1.5 mt-2">${[...new Set([pc.workLocation, ...recentParking()].filter(Boolean))].slice(0, 4).map((l) =>
+            `<button type="button" class="badge bg-slate-100 text-ink !text-sm !py-1.5" data-park="${esc(l)}">${esc(l)}</button>`).join("")}</div>
+        </div>` : ""}`).join("")}
     </section>
     <textarea id="f-notes" class="inp mt-4 min-h-[90px] bg-white" placeholder="הערות (לא חובה)"></textarea>
     <div class="sticky bottom-3 mt-4 grid grid-cols-3 gap-2">
@@ -837,8 +851,19 @@ function mountPostCheck(root, v) {
       <button id="btn-sign" class="btn btn-primary btn-xl col-span-2 shadow-lg shadow-ink/20">סגור הפעלה</button>
     </div>`;
   window.scrollTo(0, 0);
-  const setChk = (b, on) => { checks[b.dataset.chk] = on; b.setAttribute("aria-pressed", String(on)); };
+  const parkRow = $("#park-row", root);
+  const parkInput = $("#f-park", root);
+  const setChk = (b, on) => {
+    checks[b.dataset.chk] = on;
+    b.setAttribute("aria-pressed", String(on));
+    if (b.dataset.chk === "craneParked") {
+      parkRow.hidden = !on;
+      if (on && !parkInput.value) setTimeout(() => parkInput.focus(), 50);
+    }
+  };
   $("#post-list", root).addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-park]");
+    if (chip) { parkInput.value = chip.dataset.park; return; }
     const b = e.target.closest("[data-chk]");
     if (b) setChk(b, !checks[b.dataset.chk]);
   });
@@ -846,6 +871,12 @@ function mountPostCheck(root, v) {
   $("#btn-back", root).onclick = () => { state.closing = false; mountActive(root, v); };
   $("#btn-sign", root).onclick = async (e) => {
     const btn = e.currentTarget;
+    const parkedAt = parkInput.value.trim();
+    if (checks.craneParked && !parkedAt) {
+      toast(`יש לרשום איפה ${op.craneKind || "המנוף"} חונה`, "error");
+      parkInput.focus();
+      return;
+    }
     const unchecked = POST_ITEMS.filter(([k]) => !checks[k]).map(([, l]) => l);
     if (unchecked.length) {
       const ok = await confirmDialog({
@@ -862,6 +893,8 @@ function mountPostCheck(root, v) {
     }
     const postCheck = Object.fromEntries(POST_ITEMS.map(([k]) => [k, !!checks[k]]));
     postCheck.notes = $("#f-notes", root).value.trim();
+    postCheck.parkedLocation = checks.craneParked ? parkedAt : "";
+    if (parkedAt) rememberParking(parkedAt);
     btn.disabled = true;
     btn.textContent = "סוגר…";
     try {
@@ -902,9 +935,10 @@ function postCheckSummary(op) {
   const pc = op.postCheck;
   if (!pc) return "";
   const missing = POST_ITEMS.filter(([k]) => !pc[k]).map(([, l]) => l);
-  return missing.length && !pc.forcedClose
-    ? `<span class="text-red-700 text-xs font-bold">לא אומת: ${esc(missing.join(", "))}</span>`
-    : pc.forcedClose ? "" : `<span class="text-emerald-700 text-xs font-bold">✓ סגירה מלאה</span>`;
+  const park = pc.parkedLocation ? `<div class="text-xs text-muted">חונה ב: <b class="text-ink">${esc(pc.parkedLocation)}</b></div>` : "";
+  return (missing.length && !pc.forcedClose
+    ? `<span class="text-[#B42318] text-xs font-semibold">לא אומת: ${esc(missing.join(", "))}</span>`
+    : pc.forcedClose ? "" : `<span class="text-[#2F7D55] text-xs font-semibold">סגירה מלאה</span>`) + park;
 }
 
 function drawAlerts(el, ops) {
@@ -1492,7 +1526,7 @@ function exportCsv(ops) {
   const yn = (b) => (b === true ? "תקין" : b === false ? "לא תקין" : "");
   const vy = (b) => (b ? "כן" : "לא");
   const head = ["סוג", "כלי", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
-    "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
+    "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "חונה", "מיקום חניה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
@@ -1501,7 +1535,7 @@ function exportCsv(ops) {
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
       api.fmtDateStr(pc.inspectionUntil), pc.licenses ? api.fmtDateStr(pc.licenses.craneLicenseExpiry) : "",
       (({ critical, warning }) => [...critical.map((x) => `חמורה: ${x}`), ...warning.map((x) => `ראשונית: ${x}`)].join("; "))(api.analyzePreCheck(pc)),
-      ...(o.postCheck ? POST_ITEMS.map(([k]) => vy(po[k])) : ["", "", "", "", ""]), po.notes || ""];
+      ...(o.postCheck ? [vy(po.craneParked), po.parkedLocation || "", ...POST_ITEMS.slice(1).map(([k]) => vy(po[k]))] : ["", "", "", "", "", ""]), po.notes || ""];
   });
   const csv = [head, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });

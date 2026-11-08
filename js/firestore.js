@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082250";
+import { db } from "./auth.js?v=202611082251";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082250";
+import { DEFAULTS } from "./config.js?v=202611082251";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -97,7 +97,7 @@ export function saveAlertSettings(data, updatedBy) {
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082250");
+  const { app } = await import("./auth.js?v=202611082251");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -251,7 +251,10 @@ export const updateCrane = (id, data) => updateDoc(doc(db, "cranes", id), { ...d
 export const deleteCrane = (id) => deleteDoc(doc(db, "cranes", id));
 
 // ---------- סוגי כלים: מנופים ומלגזות ----------
-const RELEVANT_RE = /מנוף|מלגז|crane|forklift/i;
+const RELEVANT_RE = /מנוף|מלגז|טלסקופ|crane|forklift|telehandler/i;
+const TELE_RE = /טלסקופ|telehandler/i;
+/** מתקן שגיאת כתיב נפוצה בסוגי הציוד ("מעמיק טלסקופי" → "מעמיס טלסקופי") — לתצוגה בלבד */
+export const fixTypeName = (t) => String(t || "").replace(/מעמיק(\s*טלסקופ)/g, "מעמיס$1");
 /** האם סוג הציוד רלוונטי למערכת (לפי בחירת המנהל, או כברירת מחדל — מנופים ומלגזות) */
 export function isRelevantType(type, s = alertSettings) {
   const t = String(type || "").trim();
@@ -259,7 +262,7 @@ export function isRelevantType(type, s = alertSettings) {
 }
 export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
 /** "מלגזה" או "מנוף" לפי סוג הציוד */
-export const kindOf = (type) => (/מלגז|forklift/i.test(String(type || "")) ? "מלגזה" : "מנוף");
+export const kindOf = (type) => (TELE_RE.test(String(type || "")) ? "מעמיס טלסקופי" : /מלגז|forklift/i.test(String(type || "")) ? "מלגזה" : "מנוף");
 /** שם תצוגה לכלי: "מנוף 7206179" / "מלגזה 8812044" */
 export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${x?.craneId ?? ""}`.trim();
 
@@ -286,7 +289,7 @@ function slimEquipment(d) {
     lastInspectionDate: normDate(x.lastCheck ?? x.lastInspectionDate),
   };
 }
-export const equipmentLabel = (e) => [e.type, `צ' ${e.tz}`, e.manufacturer, e.model].filter(Boolean).join(" · ");
+export const equipmentLabel = (e) => [fixTypeName(e.type), `צ' ${e.tz}`, e.manufacturer, e.model].filter(Boolean).join(" · ");
 
 export async function listEquipment() {
   const s = await getDocs(collection(db, "equipment"));

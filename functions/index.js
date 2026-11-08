@@ -118,7 +118,8 @@ exports.dailyExpiryDigest = onSchedule({ schedule: "0 7 * * *", timeZone: "Asia/
     if (date !== (cr.inspectionUntil || null)) await c.ref.update({ inspectionUntil: date, inspectionSyncedAt: admin.firestore.FieldValue.serverTimestamp() });
     const d = daysUntil(date, today);
     if (d == null) continue;
-    const unit = `${/מלגז|forklift/i.test(cr.equipmentType || "") ? "מלגזה" : "מנוף"} ${cr.craneId}`;
+    const t = cr.equipmentType || "";
+    const unit = `${/טלסקופ|telehandler/i.test(t) ? "מעמיס טלסקופי" : /מלגז|forklift/i.test(t) ? "מלגזה" : "מנוף"} ${cr.craneId}`;
     if (d < 0) expired.push(`תסקיר ${unit} (${fmt(date)})`);
     else if (d <= ins.soonDays) soon.push(`תסקיר ${unit} — עוד ${d} ימים`);
   }

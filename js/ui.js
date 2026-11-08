@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082250";
-import * as api from "./firestore.js?v=202611082250";
-import * as push from "./push.js?v=202611082250";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082250";
+import { login, logout, onAuth } from "./auth.js?v=202611082251";
+import * as api from "./firestore.js?v=202611082251";
+import * as push from "./push.js?v=202611082251";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082251";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -1167,7 +1167,7 @@ function renderAdmin() {
     if (v.legacyErr) { el.innerHTML = `<span class="text-red-700">⚠️ לא ניתן לקרוא נתונים ממערכת הציוד: ${esc(v.legacyErr)}</span>`; return; }
     if (!v.equipment) { el.textContent = "טוען נתונים ממערכת הציוד…"; return; }
     const rel = v.equipment.filter((e) => api.isRelevantType(e.type)).length;
-    const types = [...new Set(v.equipment.map((e) => e.type || "ללא סוג"))].join(", ");
+    const types = [...new Set(v.equipment.map((e) => api.fixTypeName(e.type) || "ללא סוג"))].join(", ");
     el.innerHTML = `ממערכת הציוד: <b>${v.equipment.length}</b> רשומות ציוד, מתוכן <b>${rel}</b> מנופים ומלגזות · <b>${v.sites.length}</b> אתרים · <b>${v.operators.length}</b> מנופאים
       <div class="text-xs text-slate-400 mt-0.5">סוגים שנמצאו: ${esc(types || "—")}</div>`;
   };
@@ -1791,7 +1791,7 @@ function mountAlertSettings(panel) {
     const sel = api.getAlertSettings().equipmentTypes;
     el.innerHTML = allTypes.length ? allTypes.map((t) => `
       <label class="flex items-center gap-1.5 font-bold"><input type="checkbox" name="eqtype" value="${esc(t)}" class="w-4 h-4 accent-emerald-600"
-        ${(sel ? sel.includes(t) : api.defaultRelevant(t)) ? "checked" : ""}> ${esc(t)}</label>`).join("")
+        ${(sel ? sel.includes(t) : api.defaultRelevant(t)) ? "checked" : ""}> ${esc(api.fixTypeName(t))}</label>`).join("")
       : `<span class="text-slate-400">לא נמצאו סוגים ברשומות הציוד</span>`;
   };
   api.listEquipment().then((list) => {

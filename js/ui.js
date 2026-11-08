@@ -2,7 +2,7 @@
 import { login, logout, onAuth } from "./auth.js";
 import * as api from "./firestore.js";
 import * as push from "./push.js";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS } from "./config.js";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL } from "./config.js";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -35,8 +35,12 @@ const emailOf = () => (state.user?.email || "").toLowerCase();
 const isDeveloper = () => DEVELOPER_EMAILS.map((e) => e.toLowerCase()).includes(emailOf());
 const isFixedAdminEmail = (email) => [...DEVELOPER_EMAILS, ...ADMIN_EMAILS].map((e) => e.toLowerCase()).includes(String(email || "").toLowerCase());
 
+/** הפרופיל שהמסך מוצג עבורו (במצב "תצוגה כמשתמש" של המפתח — המשתמש הנצפה) */
+const me = () => state.viewAs?.profile || state.profile;
+const myUid = () => state.viewAs?.uid || state.user?.uid;
+
 const $app = document.getElementById("app");
-const state = { user: null, profile: null, routeKey: null, subs: [], closing: false };
+const state = { user: null, profile: null, routeKey: null, subs: [], closing: false, viewAs: null };
 const knownSites = new Set();
 
 // ---------- כלי עזר ----------
@@ -229,8 +233,45 @@ const empty = (text) => `<div class="text-center text-slate-400 py-8 font-semibo
 const spinner = `<div class="flex justify-center py-10"><div class="w-8 h-8 border-4 border-slate-300 border-t-amber-500 rounded-full animate-spin"></div></div>`;
 
 // ---------- מעטפת עמוד ----------
+// ---------- התקנה כאפליקציה ----------
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; $("#install-banner")?.classList.remove("hidden"); });
+window.addEventListener("appinstalled", () => { $("#install-banner")?.remove(); });
+const INSTALL_KEY = "crane-control:install-dismissed";
+const isStandaloneApp = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOSDevice = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function installBanner() {
+  if (isStandaloneApp()) return "";
+  try { if (Date.now() < Number(localStorage.getItem(INSTALL_KEY) || 0)) return ""; } catch { /* ignore */ }
+  return `
+    <div id="install-banner" class="bg-amber-400 text-slate-900">
+      <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2">
+        <span class="text-xl">📲</span>
+        <span class="flex-1 text-sm font-bold leading-tight">האפליקציה לא מותקנת בטלפון. התקן לגישה מהירה ולהתראות.</span>
+        <button id="btn-install" class="btn btn-dark btn-sm">התקן</button>
+        <button id="btn-install-x" class="px-2 text-xl font-black" aria-label="סגור">×</button>
+      </div>
+    </div>`;
+}
+async function doInstall() {
+  if (installPrompt) {
+    installPrompt.prompt();
+    const r = await installPrompt.userChoice.catch(() => null);
+    installPrompt = null;
+    if (r?.outcome === "accepted") $("#install-banner")?.remove();
+    return;
+  }
+  confirmDialog({
+    title: "התקנת האפליקציה",
+    html: isIOSDevice()
+      ? `<ol class="list-decimal pr-5 space-y-2"><li>פתח את האתר ב-<b>Safari</b></li><li>לחץ על כפתור <b>השיתוף</b> (ריבוע עם חץ למעלה)</li><li>בחר <b>"הוסף למסך הבית"</b> ← הוסף</li><li>פתח מהאייקון שנוצר במסך הבית</li></ol>`
+      : `<ol class="list-decimal pr-5 space-y-2"><li>פתח את האתר ב-<b>Chrome</b></li><li>לחץ על התפריט <b>⋮</b> בפינה</li><li>בחר <b>"התקנת אפליקציה"</b> או <b>"הוספה למסך הבית"</b></li></ol>`,
+    confirmText: "הבנתי", cancelText: "סגור",
+  });
+}
+
 function shell(inner, { wide = true } = {}) {
-  const p = state.profile;
+  const p = me();
   const sub = p?.status === "approved"
     ? `${esc(p.name)} · ${ROLE_LABELS[p.role] || ""}${p.assignedSite ? ` · ${esc(p.assignedSite)}` : ""}`
     : esc(state.user?.email || "");
@@ -242,13 +283,91 @@ function shell(inner, { wide = true } = {}) {
           <div class="font-extrabold leading-tight">בקרת מנופים</div>
           <div class="text-xs text-slate-300 truncate">${sub}</div>
         </div>
+        ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="text-sm font-bold px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400" title="תצוגה כמשתמש">👁️</button>` : ""}
         <button id="btn-logout" class="text-sm font-bold px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">יציאה</button>
       </div>
     </header>
+    ${state.viewAs ? `<div class="bg-indigo-600 text-white"><div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm font-bold">
+      <span class="flex-1">👁️ מצב תצוגה: ${esc(state.viewAs.label)}. פעולות לא נשמרות.</span>
+      <button id="btn-viewas-exit" class="btn btn-sm bg-white text-indigo-700">יציאה</button></div></div>` : ""}
+    ${state.profile?.status === "approved" ? installBanner() : ""}
     <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto p-4 pb-28">${inner}</main>
     <datalist id="sites-list"></datalist>`;
   $("#btn-logout").onclick = () => logout();
+  $("#btn-viewas") && ($("#btn-viewas").onclick = openViewAs);
+  $("#btn-viewas-exit") && ($("#btn-viewas-exit").onclick = () => { state.viewAs = null; state.closing = false; clearSubs(); route(); });
+  $("#btn-install") && ($("#btn-install").onclick = doInstall);
+  $("#btn-install-x") && ($("#btn-install-x").onclick = () => {
+    try { localStorage.setItem(INSTALL_KEY, String(Date.now() + 3 * 864e5)); } catch { /* ignore */ }
+    $("#install-banner")?.remove();
+  });
   rememberSites([]);
+}
+
+// ---------- שיתוף בוואטסאפ ----------
+function shareWhatsApp() {
+  const text = [
+    "🏗️ *בקרת מנופים ומלגזות*",
+    "מערכת לפתיחה וסגירה של הפעלות מנוף ומלגזה, בדיקות לפני הפעלה, ובקרה על תוקף תסקירים ורישיונות.",
+    "",
+    `🔗 ${SITE_URL}`,
+    "",
+    "*איך מצטרפים:*",
+    "1. נכנסים לקישור ומתחברים עם חשבון Google",
+    "2. ממלאים בקשת הרשאה (שם, טלפון, ת\"ז)",
+    "3. מחכים לאישור מנהל המערך",
+    "4. מתקינים כאפליקציה: אייפון ב-Safari ← שיתוף ← הוסף למסך הבית. אנדרואיד ב-Chrome ← ⋮ ← התקנת אפליקציה",
+  ].join("\n");
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+}
+
+// ---------- תצוגה כמשתמש (מפתח בלבד) ----------
+async function openViewAs() {
+  const root = $("#modal-root");
+  root.innerHTML = `
+    <div class="fixed inset-0 z-40 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" data-close>
+      <div class="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <h3 class="text-xl font-extrabold mb-1">👁️ תצוגה כמשתמש</h3>
+        <p class="text-sm text-slate-500 mb-4">רואים את האתר בדיוק כמו המשתמש. פעולות הן סימולציה ולא נשמרות.</p>
+        <div class="font-bold text-slate-700 mb-2">תפקיד לדוגמה</div>
+        <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
+          <select id="va-site" class="inp-sm">${[...knownSites].sort().map((s) => `<option>${esc(s)}</option>`).join("") || `<option value="">אין אתרים</option>`}</select>
+          <span></span>
+          <button class="btn btn-ghost btn-sm" data-va="operator">🕹️ מפעיל באתר הנבחר</button>
+          <button class="btn btn-ghost btn-sm" data-va="site_manager">📋 מנהל אתר</button>
+        </div>
+        <div class="font-bold text-slate-700 mt-4 mb-2">משתמש אמיתי</div>
+        <div id="va-users" class="space-y-1.5">${spinner}</div>
+        <button class="btn btn-ghost w-full mt-4" data-close-btn>ביטול</button>
+      </div>
+    </div>`;
+  const close = () => { root.innerHTML = ""; };
+  $("[data-close]", root).onclick = (e) => { if (e.target.hasAttribute("data-close")) close(); };
+  $("[data-close-btn]", root).onclick = close;
+  const start = (viewAs) => { close(); state.viewAs = viewAs; state.closing = false; clearSubs(); route(); window.scrollTo(0, 0); };
+  $$("[data-va]", root).forEach((b) => {
+    b.onclick = () => {
+      const role = b.dataset.va;
+      const site = $("#va-site", root).value;
+      start({
+        uid: "preview-user",
+        label: `${ROLE_LABELS[role]}${site ? ` · ${site}` : ""} (לדוגמה)`,
+        profile: { name: role === "operator" ? "מפעיל לדוגמה" : "מנהל אתר לדוגמה", role, status: "approved", assignedSite: site, operatorRecordId: null, licenses: null },
+      });
+    };
+  });
+  const unsub = api.watchUsers((users) => {
+    unsub();
+    const list = users.filter((u) => u.status === "approved" && ["operator", "site_manager"].includes(u.role));
+    $("#va-users", root).innerHTML = list.length ? list.map((u) => `
+      <button class="w-full text-right rounded-xl border border-slate-200 px-3 py-2 hover:bg-slate-50" data-uid="${esc(u.id)}">
+        <b>${esc(u.name)}</b> <span class="text-xs text-slate-500">${ROLE_LABELS[u.role]}${u.assignedSite ? ` · ${esc(u.assignedSite)}` : ""}</span>
+      </button>`).join("") : empty("אין עדיין מפעילים או מנהלי אתר מאושרים");
+    $$("[data-uid]", root).forEach((b) => {
+      const u = list.find((x) => x.id === b.dataset.uid);
+      b.onclick = () => start({ uid: u.id, label: `${u.name} · ${ROLE_LABELS[u.role]}`, profile: u });
+    });
+  }, onErr);
 }
 
 // ---------- ניתוב ----------
@@ -281,6 +400,10 @@ function route() {
   if (p.status === "rejected") return renderBlocked();
   if (p.status !== "approved") return renderPending();
   track(api.watchAlertSettings(() => document.dispatchEvent(new Event("alerts-changed")), onErr));
+  if (state.viewAs && isDeveloper()) {
+    if (state.viewAs.profile.role === "site_manager") return renderSiteManager();
+    return renderOperator();
+  }
   if (p.role === "admin") return renderAdmin();
   if (p.role === "site_manager") return renderSiteManager();
   if (p.role === "operator") return renderOperator();
@@ -379,30 +502,42 @@ function renderBlocked() {
 }
 
 // =====================================================================
-// מסך מפעיל
+// מסך מפעיל — פשוט ומהיר: (1) בחירת כלי → (2) בדיקה והתחלה → פעיל → סגירה
 // =====================================================================
+const LEVEL_CHIPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const LOC_KEY = "crane-control:locations";
+const recentLocations = () => { try { return JSON.parse(localStorage.getItem(LOC_KEY) || "[]"); } catch { return []; } };
+function rememberLocation(loc) {
+  try { localStorage.setItem(LOC_KEY, JSON.stringify([loc, ...recentLocations().filter((x) => x !== loc)].slice(0, 4))); } catch { /* ignore */ }
+}
+
 function renderOperator() {
-  const p = state.profile;
+  const p = me();
   if (!p.assignedSite) {
     shell(`<div class="card text-center py-10"><div class="text-4xl mb-3">📍</div>
       <h1 class="text-xl font-extrabold">לא שויך לך אתר</h1>
-      <p class="text-slate-500 mt-2">פנה למנהל המערך לשיוך לאתר/רציף.</p></div>`, { wide: false });
+      <p class="text-slate-500 mt-2">פנה למנהל המערך לשיוך לאתר.</p></div>`, { wide: false });
     return;
   }
   shell(`<div id="op-root">${spinner}</div>`, { wide: false });
   const root = $("#op-root");
-  const v = { cranes: [], op: undefined, mode: null, opId: null, selected: null, toggles: {} };
+  const v = { cranes: [], op: undefined, mode: null, opId: null, selected: null, toggles: {}, levels: {} };
 
   track(api.watchCranes(p.assignedSite, (list) => {
     v.cranes = list;
-    if (v.mode === "pre") drawCraneGrid(v);
+    if (v.mode === "pick") drawPick(root, v);
+    if (v.mode === "check" && !v.submitting && v.started !== v.selected && !v.cranes.some((c) => c.id === v.selected && c.currentStatus === "available")) {
+      toast(`${v.selected} כבר אינו פנוי — בחר כלי אחר`, "error");
+      mountPick(root, v);
+    }
   }, onErr));
 
-  track(api.watchMyActiveOperation(state.user.uid, (op) => {
+  track(api.watchMyActiveOperation(myUid(), (op) => {
+    if (v.op?.id === "preview") return; // סימולציה במצב תצוגה
     v.op = op;
     if (!op) {
       state.closing = false;
-      if (v.mode !== "pre") mountPreCheck(root, v);
+      if (!["pick", "check"].includes(v.mode)) mountPick(root, v);
     } else if (state.closing) {
       if (v.mode !== "close" || v.opId !== op.id) mountPostCheck(root, v);
     } else if (v.mode !== "active" || v.opId !== op.id) {
@@ -411,91 +546,125 @@ function renderOperator() {
   }, onErr));
 }
 
-// ----- שלב 1: בדיקת פתיחה -----
-function toggleField(name, label) {
+// ----- שלב 1: בחירת כלי -----
+function mountPick(root, v) {
+  Object.assign(v, { mode: "pick", opId: null, selected: null, toggles: {}, levels: {}, submitting: false, started: null });
+  drawPick(root, v);
+}
+function drawPick(root, v) {
+  const avail = v.cranes.filter((c) => c.currentStatus === "available");
+  const busy = v.cranes.filter((c) => c.currentStatus !== "available");
+  root.innerHTML = `
+    <div class="flex items-center justify-between gap-2 mb-3">
+      <h1 class="text-2xl font-black">בחר כלי</h1>
+      <div class="flex flex-wrap justify-end gap-1">${licenseBadges(me())}</div>
+    </div>
+    <div class="space-y-2">
+      ${avail.length ? avail.map((c) => `
+        <button type="button" class="w-full flex items-center justify-between gap-3 rounded-2xl bg-white border-2 border-slate-200 active:border-amber-500 active:bg-amber-50 px-4 py-4 text-right shadow-sm" data-crane="${esc(c.id)}">
+          <span>
+            <span class="block text-sm font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span>
+            <span class="block text-3xl font-black leading-tight">${esc(c.craneId)}</span>
+          </span>
+          <span class="flex flex-col items-end gap-1">${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}<span class="text-2xl text-slate-300">‹</span></span>
+        </button>`).join("") : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
+    </div>
+    ${busy.length ? `<div class="mt-4 text-sm text-slate-500 font-bold mb-1">לא זמינים</div>
+      <div class="flex flex-wrap gap-2">${busy.map((c) => `<span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${esc(c.craneId)} · ${CRANE_STATUS[c.currentStatus]?.label}</span>`).join("")}</div>` : ""}`;
+  $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; mountCheck(root, v); }; });
+}
+
+// ----- שלב 2: בדיקה לפני הפעלה -----
+function levelChips(name, label, key) {
+  const c = api.getAlertSettings()[key];
+  const tone = (n) => (!c.enabled ? "" : n < c.crit ? "lvl-crit" : n < c.warn ? "lvl-warn" : "");
   return `
-    <div class="flex items-center justify-between gap-3 py-2.5 border-b border-slate-100 last:border-0" data-toggle="${name}">
-      <span class="font-bold text-lg">${label}</span>
-      <div class="flex gap-2">
-        <button type="button" class="tgl" data-val="1">✓ תקין</button>
-        <button type="button" class="tgl" data-val="0">✗ לא תקין</button>
+    <div class="py-3">
+      <div class="flex items-baseline justify-between mb-2">
+        <span class="font-extrabold text-lg">${label}</span>
+        <span class="text-2xl font-black tabular-nums" data-level-val="${name}">—</span>
+      </div>
+      <div class="grid grid-cols-5 gap-1.5" data-level="${name}">
+        ${LEVEL_CHIPS.map((n) => `<button type="button" class="lvl ${tone(n)}" data-n="${n}">${n}</button>`).join("")}
       </div>
     </div>`;
 }
-function thresholdHint(key) {
-  const c = api.getAlertSettings()[key];
-  return c.enabled ? `התראה ראשונית מתחת ל-${c.warn}% · חמורה מתחת ל-${c.crit}%` : "ללא התראה על מדד זה";
-}
-function levelField(name, label, key) {
+function toggleRow(name, label) {
   return `
-    <div class="py-2.5 border-b border-slate-100">
-      <div class="flex items-center justify-between gap-3 mb-2">
-        <label class="font-bold text-lg" for="n-${name}">${label}</label>
-        <div class="flex items-center gap-1">
-          <input id="n-${name}" name="${name}" type="number" inputmode="numeric" min="0" max="100" step="1"
-            class="inp w-24 text-center font-extrabold py-2" placeholder="—" data-level="${name}">
-          <span class="font-bold text-slate-500">%</span>
-        </div>
+    <div class="flex items-center justify-between gap-2 py-2" data-toggle="${name}">
+      <span class="font-bold">${label}</span>
+      <div class="flex gap-1.5">
+        <button type="button" class="tgl" data-val="1">תקין</button>
+        <button type="button" class="tgl" data-val="0">לא תקין</button>
       </div>
-      <input type="range" min="0" max="100" step="5" value="0" class="w-full h-8" data-range="${name}" aria-label="${label}">
-      <div class="text-xs text-slate-400" data-hint="${key}">${thresholdHint(key)}</div>
     </div>`;
 }
 
-function mountPreCheck(root, v) {
-  Object.assign(v, { mode: "pre", opId: null, selected: null, toggles: {}, submitting: false });
+function mountCheck(root, v) {
+  Object.assign(v, { mode: "check", toggles: {}, levels: {} });
+  const crane = v.cranes.find((c) => c.id === v.selected);
+  const recent = recentLocations();
   root.innerHTML = `
-    <div class="mb-4 flex items-start justify-between gap-2">
-      <div>
-        <h1 class="text-2xl font-black">פתיחת הפעלה</h1>
-        <p class="text-slate-500">אתר: <b>${esc(state.profile.assignedSite)}</b></p>
+    <div class="flex items-center gap-3 mb-3">
+      <button type="button" id="btn-change" class="btn btn-ghost btn-sm">‹ החלף</button>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-bold text-slate-500">${api.kindOf(crane?.equipmentType)}</div>
+        <div class="text-2xl font-black leading-tight">${esc(v.selected)}</div>
       </div>
-      <div id="lic-badge" class="pt-1"></div>
+      ${validityBadge(crane?.inspectionUntil, "inspection", { linked: !!crane?.equipmentId, short: true })}
     </div>
-    <form id="pre-form" class="space-y-4" novalidate>
-      <section class="card">
-        <h2 class="sec-title">1 · בחירת כלי פנוי (מנוף / מלגזה)</h2>
-        <div id="crane-grid" class="grid grid-cols-2 gap-3"></div>
+    <form id="pre-form" class="space-y-3" novalidate>
+      <section class="card space-y-3">
+        <div>
+          <label class="lbl" for="f-loc">מיקום עבודה</label>
+          <input id="f-loc" name="workLocation" class="inp" placeholder="רציף / מיקום" autocomplete="off" value="${esc(recent[0] || "")}">
+          ${recent.length > 1 ? `<div class="flex flex-wrap gap-1.5 mt-2">${recent.map((l) => `<button type="button" class="badge bg-slate-100 text-slate-700 !text-sm !py-1.5" data-loc="${esc(l)}">${esc(l)}</button>`).join("")}</div>` : ""}
+        </div>
+        <div>
+          <label class="lbl" for="f-hours">שעות מנוע</label>
+          <input id="f-hours" name="engineHours" class="inp text-center text-2xl font-black" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0">
+        </div>
       </section>
-      <section class="card space-y-4">
-        <h2 class="sec-title !mb-0">2 · מיקום ושעות מנוע</h2>
-        <div><label class="lbl" for="f-loc">מיקום עבודה (רציף ספציפי)</label>
-          <input id="f-loc" name="workLocation" class="inp" placeholder="לדוגמה: רציף 3 צפון" autocomplete="off"></div>
-        <div><label class="lbl" for="f-hours">שעות מנוע</label>
-          <input id="f-hours" name="engineHours" class="inp text-left" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0.0"></div>
-      </section>
-      <section class="card">
-        <h2 class="sec-title">3 · נוזלים</h2>
-        ${levelField("fuelLevel", "⛽ דלק", "fuel")}
-        ${levelField("ureaLevel", "💧 אוראה", "urea")}
-        ${toggleField("oilLevelOk", PRE_TOGGLES.oilLevelOk)}
-        ${toggleField("waterLevelOk", PRE_TOGGLES.waterLevelOk)}
+      <section class="card !py-1 divide-y divide-slate-100">
+        ${levelChips("fuelLevel", "דלק %", "fuel")}
+        ${levelChips("ureaLevel", "אוראה %", "urea")}
       </section>
       <section class="card">
-        <h2 class="sec-title">4 · ציוד הרמה</h2>
-        ${toggleField("strapsOk", PRE_TOGGLES.strapsOk)}
-        ${toggleField("shacklesOk", PRE_TOGGLES.shacklesOk)}
-        ${toggleField("trolleyOk", PRE_TOGGLES.trolleyOk)}
+        <div class="flex items-center justify-between mb-1">
+          <span class="font-extrabold text-lg">בדיקות</span>
+          <button type="button" id="btn-all-ok" class="btn btn-success btn-sm">✓ הכל תקין</button>
+        </div>
+        <div class="divide-y divide-slate-100">
+          ${Object.entries(PRE_TOGGLES).map(([k, l]) => toggleRow(k, l)).join("")}
+        </div>
       </section>
       <div id="pre-issues"></div>
       <div class="sticky bottom-3 z-10">
         <button type="submit" class="btn btn-primary btn-xl">▶ התחל הפעלה</button>
       </div>
     </form>`;
-  drawCraneGrid(v);
-
+  window.scrollTo(0, 0);
   const form = $("#pre-form", root);
   const refresh = () => drawPreIssues(v, form);
   refresh();
 
-  $("#crane-grid", root).addEventListener("click", (e) => {
-    const b = e.target.closest("[data-crane]");
-    if (!b) return;
-    v.selected = b.dataset.crane;
-    drawCraneGrid(v);
+  $("#btn-change", root).onclick = () => mountPick(root, v);
+  $("#btn-all-ok", root).onclick = () => {
+    $$("[data-toggle]", form).forEach((w) => { w.dataset.value = "1"; v.toggles[w.dataset.toggle] = true; });
     refresh();
-  });
+  };
   form.addEventListener("click", (e) => {
+    const loc = e.target.closest("[data-loc]");
+    if (loc) { form.elements.workLocation.value = loc.dataset.loc; refresh(); return; }
+    const lvl = e.target.closest(".lvl");
+    if (lvl) {
+      const name = lvl.closest("[data-level]").dataset.level;
+      v.levels[name] = Number(lvl.dataset.n);
+      $$(".lvl", lvl.parentElement).forEach((b) => b.setAttribute("aria-pressed", String(b === lvl)));
+      $(`[data-level-val="${name}"]`, form).textContent = `${v.levels[name]}%`;
+      refresh();
+      return;
+    }
     const b = e.target.closest(".tgl");
     if (!b) return;
     const wrap = b.closest("[data-toggle]");
@@ -503,61 +672,31 @@ function mountPreCheck(root, v) {
     v.toggles[wrap.dataset.toggle] = b.dataset.val === "1";
     refresh();
   });
-  form.addEventListener("input", (e) => {
-    const r = e.target.dataset.range;
-    const n = e.target.dataset.level;
-    if (r) form.elements[r].value = e.target.value;
-    if (n) { const val = Math.max(0, Math.min(100, Number(e.target.value) || 0)); $(`[data-range="${n}"]`, form).value = val; }
-    refresh();
-  });
-  form.addEventListener("submit", (e) => { e.preventDefault(); submitPreCheck(v, form); });
+  form.addEventListener("input", refresh);
+  form.addEventListener("submit", (e) => { e.preventDefault(); submitPreCheck(root, v, form); });
   const onAlerts = () => { if (form.isConnected) refresh(); };
   document.addEventListener("alerts-changed", onAlerts);
   track(() => document.removeEventListener("alerts-changed", onAlerts));
 }
 
-function drawCraneGrid(v) {
-  const grid = $("#crane-grid");
-  if (!grid) return;
-  const avail = v.cranes.filter((c) => c.currentStatus === "available");
-  if (v.selected && !avail.some((c) => c.id === v.selected)) {
-    if (!v.submitting) toast(`${v.selected} אינו פנוי עוד — בחר כלי אחר`, "error");
-    v.selected = null;
-  }
-  const busy = v.cranes.filter((c) => c.currentStatus !== "available");
-  grid.innerHTML = avail.length
-    ? avail.map((c) => `
-        <button type="button" class="crane-opt" data-crane="${esc(c.id)}" aria-pressed="${c.id === v.selected}">
-          <div class="text-xs text-slate-500 font-bold">${api.kindOf(c.equipmentType)}</div>
-          <div class="text-2xl font-black">${esc(c.craneId)}</div>
-          <div class="mt-1">${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}</div>
-        </button>`).join("")
-    : `<div class="col-span-2">${empty("אין כלים פנויים באתר כרגע")}</div>`;
-  if (busy.length) {
-    grid.insertAdjacentHTML("beforeend", `<div class="col-span-2 flex flex-wrap gap-2 pt-1 text-xs">${busy.map((c) =>
-      `<span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${esc(c.craneId)} · ${CRANE_STATUS[c.currentStatus]?.label}</span>`).join("")}</div>`);
-  }
-}
-
 function collectPreCheck(v, form) {
-  const num = (n) => (form.elements[n].value === "" ? null : Number(form.elements[n].value));
   const crane = v.cranes.find((c) => c.id === v.selected);
+  const hours = form.elements.engineHours.value;
   const values = {
-    operatorRecordId: state.profile.operatorRecordId || null,
-    licenses: state.profile.licenses || null,
+    operatorRecordId: me().operatorRecordId || null,
+    licenses: me().licenses || null,
     ...(crane ? { equipmentId: crane.equipmentId || null, inspectionUntil: crane.inspectionUntil || null } : {}),
     workLocation: form.elements.workLocation.value.trim(),
-    engineHours: num("engineHours"),
-    fuelLevel: num("fuelLevel"),
-    ureaLevel: num("ureaLevel"),
+    engineHours: hours === "" ? null : Number(hours),
+    fuelLevel: v.levels.fuelLevel ?? null,
+    ureaLevel: v.levels.ureaLevel ?? null,
   };
   Object.keys(PRE_TOGGLES).forEach((k) => { values[k] = k in v.toggles ? v.toggles[k] : null; });
   const missing = [];
-  if (!v.selected) missing.push("בחירת מנוף");
-  if (!values.workLocation) missing.push("מיקום עבודה");
+  if (!values.workLocation) missing.push("מיקום");
   if (values.engineHours == null || values.engineHours < 0) missing.push("שעות מנוע");
-  if (values.fuelLevel == null || values.fuelLevel < 0 || values.fuelLevel > 100) missing.push("דלק");
-  if (values.ureaLevel == null || values.ureaLevel < 0 || values.ureaLevel > 100) missing.push("אוראה");
+  if (values.fuelLevel == null) missing.push("דלק");
+  if (values.ureaLevel == null) missing.push("אוראה");
   Object.entries(PRE_TOGGLES).forEach(([k, l]) => { if (values[k] == null) missing.push(l); });
   return { values, missing };
 }
@@ -565,60 +704,51 @@ function collectPreCheck(v, form) {
 function drawPreIssues(v, form) {
   const { values } = collectPreCheck(v, form);
   const a = api.analyzePreCheck(values);
-  $$("[data-hint]").forEach((el) => { el.textContent = thresholdHint(el.dataset.hint); });
-  const lb = $("#lic-badge");
-  if (lb) lb.innerHTML = `<div class="flex flex-col items-end gap-1">${licenseBadges(state.profile)}</div>`;
   const crit = a.level === "critical";
   $("#pre-issues").innerHTML = a.level ? `
-    <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-4">
-      <div class="font-extrabold ${crit ? "text-red-800" : "text-amber-900"} mb-2">${crit ? "🚨 נמצאו ליקויים חמורים" : "⚠️ נמצאו ליקויים"} — יופיעו כהתראה אצל המנהלים</div>
-      <div class="flex flex-wrap gap-2">${issueChips(values)}</div>
-      ${a.blockers.length ? `<div class="mt-3 rounded-xl bg-red-600 text-white font-extrabold p-3">⛔ לא ניתן לפתוח הפעלה: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
+    <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-3">
+      <div class="flex flex-wrap gap-1.5">${issueChips(values)}</div>
+      ${a.blockers.length ? `<div class="mt-2 rounded-xl bg-red-600 text-white font-extrabold p-3">⛔ לא ניתן להתחיל: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
     </div>` : "";
   const btn = form.querySelector("button[type=submit]");
   if (btn && !v.submitting) btn.classList.toggle("opacity-50", a.blockers.length > 0);
 }
 
-async function submitPreCheck(v, form) {
+async function submitPreCheck(root, v, form) {
   const { values, missing } = collectPreCheck(v, form);
-  const pre = api.analyzePreCheck(values);
-  if (pre.blockers.length) {
-    toast(`לא ניתן לפתוח הפעלה: ${pre.blockers.join(", ")}`, "error");
-    return;
-  }
-  if (missing.length) {
-    toast(`יש להשלים: ${missing.join(", ")}`, "error");
-    if (missing.includes("בחירת מנוף")) $("#crane-grid").scrollIntoView({ behavior: "smooth", block: "center" });
-    return;
-  }
   const a = api.analyzePreCheck(values);
-  if (a.blockers.length) {
-    toast(`לא ניתן לפתוח הפעלה: ${a.blockers.join(", ")}`, "error");
-    return;
-  }
+  if (a.blockers.length) return toast(`לא ניתן להתחיל: ${a.blockers.join(", ")}`, "error");
+  if (missing.length) return toast(`חסר: ${missing.join(", ")}`, "error");
   if (a.level) {
     const ok = await confirmDialog({
-      title: a.level === "critical" ? "נמצאו ליקויים חמורים בבדיקת הפתיחה" : "נמצאו ליקויים בבדיקת הפתיחה",
-      html: `<div class="flex flex-wrap gap-2 mb-3">${issueChips(values)}</div>
-             <p>הליקויים יירשמו ויוצגו כהתראה למנהלים. להתחיל הפעלה בכל זאת?</p>`,
+      title: a.level === "critical" ? "נמצאו ליקויים חמורים" : "נמצאו ליקויים",
+      html: `<div class="flex flex-wrap gap-1.5 mb-3">${issueChips(values)}</div><p>הליקויים יועברו למנהלים. להתחיל בכל זאת?</p>`,
       confirmText: "התחל בכל זאת", danger: true,
     });
     if (!ok) return;
   }
+  rememberLocation(values.workLocation);
+  if (state.viewAs) { // מצב תצוגה — סימולציה בלבד, לא נשמר
+    const crane = v.cranes.find((c) => c.id === v.selected);
+    v.op = { id: "preview", craneId: v.selected, craneKind: api.kindOf(crane?.equipmentType), startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } };
+    toast("מצב תצוגה: ההפעלה לא נשמרה", "info");
+    return mountActive(root, v);
+  }
   const btn = form.querySelector("button[type=submit]");
   btn.disabled = true;
-  btn.textContent = "פותח הפעלה…";
+  btn.textContent = "פותח…";
   v.submitting = true;
   try {
     await api.startOperation({
       craneId: v.selected,
       uid: state.user.uid,
-      operatorName: state.profile.name,
-      site: state.profile.assignedSite,
+      operatorName: me().name,
+      site: me().assignedSite,
       preCheck: values,
-      operatorRecordId: state.profile.operatorRecordId || null,
+      operatorRecordId: me().operatorRecordId || null,
     });
-    toast("ההפעלה החלה — עבודה בטוחה!", "success");
+    v.started = v.selected; // המנוף תפוס עכשיו על ידינו — לא להתריע "אינו פנוי"
+    toast("ההפעלה החלה. עבודה בטוחה!", "success");
   } catch (e) {
     toast(errMsg(e), "error");
     btn.disabled = false;
@@ -628,81 +758,72 @@ async function submitPreCheck(v, form) {
   }
 }
 
-// ----- שלב 2: הפעלה פעילה -----
+// ----- הפעלה פעילה -----
 function mountActive(root, v) {
   const op = v.op;
   Object.assign(v, { mode: "active", opId: op.id });
   const pc = op.preCheck || {};
   root.innerHTML = `
     <div class="rounded-3xl bg-slate-900 text-white p-6 text-center shadow-xl">
-      <div class="inline-flex items-center gap-2 badge bg-emerald-500/20 text-emerald-300 text-sm mb-3">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> הפעלה פעילה
+      <div class="inline-flex items-center gap-2 badge bg-emerald-500/20 text-emerald-300 text-sm mb-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> בהפעלה
       </div>
-      <div class="text-slate-400 text-sm font-bold">${esc(op.craneKind || "מנוף")}</div>
-      <div class="text-5xl font-black mb-4">${esc(op.craneId)}</div>
-      <div class="text-slate-400 text-sm font-bold">זמן ריצה</div>
-      ${since(op.startTime, "block text-6xl font-black text-amber-400 my-1")}
-      <div class="text-slate-400 text-sm">התחלה: ${fmtTime(op.startTime)}</div>
+      <div class="text-slate-400 font-bold">${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}</div>
+      ${since(op.startTime, "block text-6xl font-black text-amber-400 my-3")}
+      <div class="text-slate-400 text-sm">${esc(pc.workLocation)} · התחלה ${fmtTime(op.startTime)}</div>
     </div>
-    <div class="grid grid-cols-2 gap-3 mt-4">
-      <div class="card"><div class="lbl">מיקום ברציף</div><div class="text-xl font-extrabold">${esc(pc.workLocation)}</div></div>
-      <div class="card"><div class="lbl">שעות מנוע (פתיחה)</div><div class="text-xl font-extrabold tabular-nums">${esc(pc.engineHours)}</div></div>
-      <div class="card"><div class="lbl">דלק</div><div class="text-xl font-extrabold">${esc(pc.fuelLevel)}%</div></div>
-      <div class="card"><div class="lbl">אוראה</div><div class="text-xl font-extrabold">${esc(pc.ureaLevel)}%</div></div>
-    </div>
-    ${(pc.issues || []).length ? `<div class="mt-4 rounded-2xl border-2 border-red-300 bg-red-50 p-4">
-      <div class="font-extrabold text-red-800 mb-2">⚠️ ליקויים שדווחו בפתיחה</div>
-      <div class="flex flex-wrap gap-2">${issueChips(pc)}</div></div>` : ""}
-    <div class="sticky bottom-3 mt-6">
-      <button id="btn-end" class="btn btn-danger btn-xl">⏹ סיום הפעלה וטופס סגירה</button>
+    ${(pc.issues || []).length ? `<div class="mt-3 flex flex-wrap gap-1.5">${issueChips(pc)}</div>` : ""}
+    <div class="fixed bottom-0 inset-x-0 p-3 bg-gradient-to-t from-slate-100 via-slate-100" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
+      <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-danger btn-xl">⏹ סיום הפעלה</button></div>
     </div>`;
   $("#btn-end", root).onclick = () => { state.closing = true; mountPostCheck(root, v); };
 }
 
-// ----- שלב 3: בדיקת סגירה -----
+// ----- סגירה -----
 function mountPostCheck(root, v) {
   const op = v.op;
   Object.assign(v, { mode: "close", opId: op.id });
   const checks = {};
   root.innerHTML = `
-    <div class="mb-4">
-      <h1 class="text-2xl font-black">בדיקת סגירה</h1>
-      <p class="text-slate-500">מנוף <b>${esc(op.craneId)}</b> · זמן ריצה ${since(op.startTime, "font-bold")}</p>
+    <div class="flex items-center justify-between gap-2 mb-3">
+      <div>
+        <h1 class="text-2xl font-black">סגירה</h1>
+        <p class="text-slate-500">${esc(op.craneKind || "מנוף")} <b>${esc(op.craneId)}</b> · ${since(op.startTime, "font-bold")}</p>
+      </div>
+      <button type="button" id="btn-all-done" class="btn btn-success btn-sm">✓ הכל בוצע</button>
     </div>
-    <section class="space-y-3" id="post-list">
+    <section class="space-y-2" id="post-list">
       ${POST_ITEMS.map(([k, l]) => `
-        <button type="button" class="chk" data-chk="${k}" aria-pressed="false">
-          <span class="box">✓</span><span>${l}</span>
-        </button>`).join("")}
+        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">✓</span><span>${l}</span></button>`).join("")}
     </section>
-    <section class="card mt-4">
-      <label class="lbl" for="f-notes">הערות נוספות</label>
-      <textarea id="f-notes" class="inp min-h-[110px]" placeholder="תקלות, אירועים חריגים, מידע למשמרת הבאה…"></textarea>
-    </section>
-    <div class="sticky bottom-3 mt-6 grid grid-cols-3 gap-3">
+    <textarea id="f-notes" class="inp mt-3 min-h-[80px]" placeholder="הערות (לא חובה)"></textarea>
+    <div class="sticky bottom-3 mt-4 grid grid-cols-3 gap-2">
       <button id="btn-back" class="btn btn-ghost py-5 rounded-2xl shadow-lg">חזרה</button>
-      <button id="btn-sign" class="btn btn-success btn-xl col-span-2">✍ חתום וסגור הפעלה</button>
+      <button id="btn-sign" class="btn btn-success btn-xl col-span-2">✍ סגור הפעלה</button>
     </div>`;
-
+  window.scrollTo(0, 0);
+  const setChk = (b, on) => { checks[b.dataset.chk] = on; b.setAttribute("aria-pressed", String(on)); };
   $("#post-list", root).addEventListener("click", (e) => {
     const b = e.target.closest("[data-chk]");
-    if (!b) return;
-    checks[b.dataset.chk] = !checks[b.dataset.chk];
-    b.setAttribute("aria-pressed", String(checks[b.dataset.chk]));
+    if (b) setChk(b, !checks[b.dataset.chk]);
   });
+  $("#btn-all-done", root).onclick = () => $$("[data-chk]", root).forEach((b) => setChk(b, true));
   $("#btn-back", root).onclick = () => { state.closing = false; mountActive(root, v); };
   $("#btn-sign", root).onclick = async (e) => {
     const btn = e.currentTarget;
     const unchecked = POST_ITEMS.filter(([k]) => !checks[k]).map(([, l]) => l);
     if (unchecked.length) {
       const ok = await confirmDialog({
-        title: "פריטים לא סומנו",
-        html: `<p class="mb-2">הפריטים הבאים לא אומתו:</p>
-               <ul class="list-disc pr-5 font-bold text-red-700">${unchecked.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
-               <p class="mt-3">לסגור את ההפעלה בכל זאת?</p>`,
+        title: "לא סומנו כל הפריטים",
+        html: `<ul class="list-disc pr-5 font-bold text-red-700">${unchecked.map((l) => `<li>${esc(l)}</li>`).join("")}</ul><p class="mt-3">לסגור בכל זאת?</p>`,
         confirmText: "סגור בכל זאת", danger: true,
       });
       if (!ok) return;
+    }
+    if (state.viewAs) {
+      state.closing = false;
+      if (op.id === "preview") { toast("מצב תצוגה: ההפעלה לא נשמרה", "info"); v.op = null; return mountPick(root, v); }
+      return toast("מצב תצוגה: לא ניתן לסגור הפעלה אמיתית של משתמש אחר", "error");
     }
     const postCheck = Object.fromEntries(POST_ITEMS.map(([k]) => [k, !!checks[k]]));
     postCheck.notes = $("#f-notes", root).value.trim();
@@ -711,11 +832,11 @@ function mountPostCheck(root, v) {
     try {
       await api.closeOperation(op, postCheck);
       state.closing = false;
-      toast("ההפעלה נסגרה והמנוף שוחרר", "success");
+      toast("ההפעלה נסגרה", "success");
     } catch (err) {
       toast(errMsg(err), "error");
       btn.disabled = false;
-      btn.textContent = "✍ חתום וסגור הפעלה";
+      btn.textContent = "✍ סגור הפעלה";
     }
   };
 }
@@ -919,6 +1040,7 @@ function mountDashboard(container, getSite, { notifyScope = "", getUsers = null 
       confirmText: "סגור הפעלה", danger: true,
     });
     if (!ok) return;
+    if (state.viewAs) return toast("מצב תצוגה: הפעולה לא בוצעה", "info");
     try { await api.forceCloseOperation(op, state.profile.name); toast("ההפעלה נסגרה", "success"); } catch (err) { onErr(err); }
   });
   return { redraw: draw };
@@ -955,7 +1077,7 @@ function drawValidity(el, cranes, operators) {
 // מסך מנהל אתר
 // =====================================================================
 function renderSiteManager() {
-  const site = state.profile.assignedSite || "";
+  const site = me().assignedSite || "";
   shell(`
     <div class="flex items-end justify-between gap-3 mb-5">
       <div><h1 class="text-2xl font-black">לוח בקרה</h1><p class="text-slate-500">${site ? `אתר: <b>${esc(site)}</b>` : "כל האתרים"}</p></div>
@@ -971,6 +1093,12 @@ function renderSiteManager() {
 function renderAdmin() {
   shell(`
     <div id="pending-banner"></div>
+    <div class="flex justify-end mb-3">
+      <button id="btn-share" class="btn btn-sm bg-[#25D366] text-white hover:brightness-95">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.2-.2-.5-.3Z"/></svg>
+        שתף בוואטסאפ
+      </button>
+    </div>
     <nav class="flex gap-1 overflow-x-auto bg-slate-200/70 rounded-2xl p-1 mb-5" role="tablist">
       <button class="tab" data-tab="overview" role="tab">📊 תמונת מצב</button>
       <button class="tab" data-tab="users" role="tab">👥 משתמשים <span id="tab-pending-cnt"></span></button>
@@ -1000,6 +1128,8 @@ function renderAdmin() {
     <section data-panel="alerts" hidden></section>`);
 
   const v = { tab: "overview", users: [], cranes: [] };
+
+  $("#btn-share").onclick = shareWhatsApp;
 
   // --- טאבים
   const setTab = (t) => {
@@ -1391,6 +1521,14 @@ function mountAlertSettings(panel) {
           <div class="font-extrabold">חשבון מפתח</div>
           <p class="text-sm mt-1">לחשבון זה הרשאות מלאות, אבל הוא לא מקבל התראות. ההתראות נשלחות למנהל המערך (${esc(ADMIN_EMAILS.join(", "))}) לפי ההגדרות שלו.</p>
         </div>
+        <div class="font-bold text-slate-700 mt-4 mb-2">בדיקת התראות (נשלחות רק אליך)</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="critical">🚨 חמורה במסך</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="warning">⚠️ ראשונית במסך</button>
+          <button type="button" class="btn btn-dark btn-sm" data-sample-push="critical">📱 חמורה לטלפון</button>
+          <button type="button" class="btn btn-dark btn-sm" data-sample-push="digest">📱 סיכום בוקר לטלפון</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">"לטלפון" רושם את המכשיר הזה ושולח דרך השרת. ההתראה מגיעה גם כשהאפליקציה סגורה, אחרי שמתקינים אותה ומאשרים התראות.</p>
       </div>` : ""}
       <form id="np-form" class="card" ${isDeveloper() ? "hidden" : ""}>
         <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
@@ -1461,6 +1599,31 @@ function mountAlertSettings(panel) {
         </div>
       </form>
     </div>`;
+
+  // ---- התראות לדוגמה (מפתח)
+  $$("[data-sample-local]", panel).forEach((b) => {
+    b.onclick = async () => {
+      const level = b.dataset.sampleLocal;
+      if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+      const title = `${level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — מנוף 7206179 (דוגמה)`;
+      toast(title, level === "critical" ? "error" : "info");
+      beep(level);
+      systemNotify(title, "משה כהן · אילת\nדלק נמוך מאוד (8%) · ליקוי בשקלים", "sample");
+    };
+  });
+  $$("[data-sample-push]", panel).forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        const token = await push.enablePush();
+        await api.addPushToken(state.user.uid, token);
+        const n = await api.sendTestPush(b.dataset.samplePush);
+        toast(n ? "נשלח. ההתראה אמורה להגיע תוך כמה שניות" : "לא נמצא מכשיר רשום", n ? "success" : "error");
+      } catch (err) {
+        toast(err?.code?.startsWith("functions/") ? "שירות ההתראות בשרת לא זמין, צריך להתקין שוב את הפונקציות" : /[א-ת]/.test(err?.message || "") ? err.message : errMsg(err), "error");
+      } finally { b.disabled = false; }
+    };
+  });
 
   // ---- ההתראות שלי
   const np = $("#np-form", panel);

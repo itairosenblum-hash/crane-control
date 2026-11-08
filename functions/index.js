@@ -166,11 +166,13 @@ exports.sendTestPush = onCall(async (req) => {
   const u = await ref.get();
   const tokens = u.exists ? u.data().fcmTokens || [] : [];
   if (!tokens.length) return { sent: 0 };
-  const sent = await sendTo([{ ref, fcmTokens: tokens }], {
-    title: "✅ בדיקת התראה — בקרת מנופים",
-    body: "ההתראות לטלפון פועלות. כך תיראה התראה על ליקוי במנוף.",
-    tag: "test",
-    level: "warning",
-  });
+  const samples = {
+    test: { title: "✅ בדיקת התראה — בקרת מנופים", body: "ההתראות לטלפון פועלות.", level: "warning" },
+    critical: { title: "🚨 התראה חמורה — מנוף 7206179 (דוגמה)", body: "משה כהן · אילת\nדלק נמוך מאוד (8%) · ליקוי בשקלים", level: "critical" },
+    warning: { title: "⚠️ התראה ראשונית — מלגזה 8812044 (דוגמה)", body: "דן לוי · אשדוד\nתסקיר מנוף יפוג בעוד 12 ימים", level: "warning" },
+    digest: { title: "📄 תוקף תסקירים ורישיונות — 1 פגו, 2 בקרוב (דוגמה)", body: "פג תוקף: תסקיר מנוף 7206179 (29/09/2026)\nיפוג בקרוב: רישיון מנוף נייד של משה כהן — עוד 20 ימים · תסקיר מלגזה 8812044 — עוד 12 ימים", level: "critical" },
+  };
+  const s = samples[req.data?.sample] || samples.test;
+  const sent = await sendTo([{ ref, fcmTokens: tokens }], { ...s, tag: `sample-${Date.now()}` });
   return { sent };
 });

@@ -95,10 +95,10 @@ export function saveAlertSettings(data, updatedBy) {
 }
 
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
-export async function sendTestPush() {
+export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
   const { app } = await import("./auth.js");
-  const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")();
+  const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
 

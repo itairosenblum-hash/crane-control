@@ -65,6 +65,14 @@
       .seg-btn[aria-pressed="true"][data-sev="warning"] { @apply bg-amber-400 text-slate-900; }
       .seg-btn[aria-pressed="true"][data-sev="critical"] { @apply bg-red-600 text-white; }
 
+      /* בחירת אחוז דלק/אוראה */
+      .lvl { @apply rounded-xl border-2 border-slate-200 bg-white py-3 text-lg font-black text-slate-700 transition; }
+      .lvl.lvl-warn { @apply border-amber-200 text-amber-700; }
+      .lvl.lvl-crit { @apply border-red-200 text-red-700; }
+      .lvl[aria-pressed="true"] { @apply bg-slate-900 border-slate-900 text-white; }
+      .lvl.lvl-warn[aria-pressed="true"] { @apply bg-amber-400 border-amber-400 text-slate-900; }
+      .lvl.lvl-crit[aria-pressed="true"] { @apply bg-red-600 border-red-600 text-white; }
+
       .tab { @apply px-4 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-white whitespace-nowrap; }
       .tab[aria-selected="true"] { @apply bg-white text-slate-900 shadow-sm; }
       .th { @apply text-right font-bold text-slate-500 text-xs px-3 py-2 bg-slate-50 border-b border-slate-200 whitespace-nowrap; }
@@ -79,7 +87,7 @@
     </div>
   </div>
   <div id="modal-root"></div>
-  <div id="toast-root" class="fixed bottom-4 inset-x-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
+  <div id="toast-root" class="fixed top-16 inset-x-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
 
   <script type="module" src="js/ui.js"></script>
 </body>

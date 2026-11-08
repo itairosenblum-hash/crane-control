@@ -4,7 +4,7 @@ import {
   collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { THRESHOLDS } from "./config.js";
+import { DEFAULTS } from "./config.js";
 
 /** שגיאה עסקית עם הודעה בעברית שמוצגת למשתמש כמות שהיא */
 export class AppError extends Error {}
@@ -13,27 +13,73 @@ const withId = (d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }
 const isNum = (n) => typeof n === "number" && !Number.isNaN(n);
 const ms = (t) => (t?.toMillis ? t.toMillis() : 0);
 
+// ---------- הגדרות התראות ----------
+/** רמות: "off" — ללא התראה, "warning" — התראה ראשונית, "critical" — התראה חמורה */
+export const CHECK_LABELS = {
+  oilLevelOk: "גובה שמן לא תקין",
+  waterLevelOk: "גובה מים לא תקין",
+  strapsOk: "ליקוי ברצועות",
+  shacklesOk: "ליקוי בשקלים",
+  trolleyOk: "ליקוי בחתולים/תפסים",
+};
+export const DEFAULT_ALERTS = {
+  fuel: { enabled: true, warn: DEFAULTS.fuelWarn, crit: DEFAULTS.fuelCrit },
+  urea: { enabled: true, warn: DEFAULTS.ureaWarn, crit: DEFAULTS.ureaCrit },
+  checks: { oilLevelOk: "critical", waterLevelOk: "critical", strapsOk: "warning", shacklesOk: "warning", trolleyOk: "warning" },
+};
+let alertSettings = structuredClone(DEFAULT_ALERTS);
+export const getAlertSettings = () => alertSettings;
+
+function mergeAlerts(d = {}) {
+  const m = structuredClone(DEFAULT_ALERTS);
+  ["fuel", "urea"].forEach((k) => { if (d[k]) Object.assign(m[k], d[k]); });
+  if (d.checks) Object.keys(m.checks).forEach((k) => { if (["off", "warning", "critical"].includes(d.checks[k])) m.checks[k] = d.checks[k]; });
+  return m;
+}
+
+export function watchAlertSettings(cb, onErr) {
+  return onSnapshot(doc(db, "settings", "alerts"), (s) => {
+    alertSettings = mergeAlerts(s.exists() ? s.data() : {});
+    cb(alertSettings, s.exists() ? s.data() : null);
+  }, onErr);
+}
+
+export function saveAlertSettings(data, updatedBy) {
+  return setDoc(doc(db, "settings", "alerts"), { ...data, updatedBy, updatedAt: serverTimestamp() });
+}
+
+export function saveNotifyPrefs(uid, prefs) {
+  return updateDoc(doc(db, "users", uid), { notifyPrefs: prefs, updatedAt: serverTimestamp() });
+}
+
 // ---------- ניתוח בדיקת פתיחה ----------
 /**
- * מחזיר את רשימת הליקויים בבדיקת הפתיחה.
- * critical  — שמן/מים לא תקינים, דלק/אוראה מתחת לסף (קובע את hasCriticalIssue)
- * equipment — ליקוי בציוד הרמה: רצועות, שקלים, חתולים/תפסים
+ * מסווג את ממצאי בדיקת הפתיחה לפי הגדרות ההתראות:
+ * critical — התראה חמורה, warning — התראה ראשונית.
+ * level מחזיר את הרמה הגבוהה שנמצאה (או null).
  */
-export function analyzePreCheck(pc = {}) {
+export function analyzePreCheck(pc = {}, s = alertSettings) {
   const critical = [];
-  const equipment = [];
-  if (pc.oilLevelOk === false) critical.push("גובה שמן לא תקין");
-  if (pc.waterLevelOk === false) critical.push("גובה מים לא תקין");
-  if (isNum(pc.fuelLevel) && pc.fuelLevel < THRESHOLDS.fuelMin) critical.push(`דלק נמוך (${pc.fuelLevel}%)`);
-  if (isNum(pc.ureaLevel) && pc.ureaLevel < THRESHOLDS.ureaMin) critical.push(`אוראה נמוכה (${pc.ureaLevel}%)`);
-  if (pc.strapsOk === false) equipment.push("ליקוי ברצועות");
-  if (pc.shacklesOk === false) equipment.push("ליקוי בשקלים");
-  if (pc.trolleyOk === false) equipment.push("ליקוי בחתולים/תפסים");
+  const warning = [];
+  const level = (name, label, v, cfg) => {
+    if (!cfg.enabled || !isNum(v)) return;
+    if (v < cfg.crit) critical.push(`${label} נמוך מאוד (${v}%)`);
+    else if (v < cfg.warn) warning.push(`${label} נמוך (${v}%)`);
+  };
+  level("fuel", "דלק", pc.fuelLevel, s.fuel);
+  level("urea", "אוראה", pc.ureaLevel, s.urea);
+  Object.entries(CHECK_LABELS).forEach(([k, label]) => {
+    if (pc[k] !== false) return;
+    const sev = s.checks[k];
+    if (sev === "critical") critical.push(label);
+    else if (sev === "warning") warning.push(label);
+  });
   return {
     critical,
-    equipment,
+    warning,
     hasCriticalIssue: critical.length > 0,
-    hasEquipmentIssue: equipment.length > 0,
+    hasWarning: warning.length > 0,
+    level: critical.length ? "critical" : warning.length ? "warning" : null,
   };
 }
 
@@ -152,8 +198,8 @@ export async function startOperation({ craneId, uid, operatorName, site, preChec
       preCheck: {
         ...preCheck,
         hasCriticalIssue: a.hasCriticalIssue,
-        hasEquipmentIssue: a.hasEquipmentIssue,
-        issues: [...a.critical, ...a.equipment],
+        hasWarning: a.hasWarning,
+        issues: [...a.critical, ...a.warning],
       },
       postCheck: null,
     });

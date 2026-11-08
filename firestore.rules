@@ -28,11 +28,17 @@ service cloud.firestore {
         && request.resource.data.assignedSite == ''
         && request.resource.data.requestedRole in ['operator', 'site_manager'];
 
-      // רק מנהל מערך משנה תפקיד/סטטוס/אתר; משתמש יכול לעדכן רק שם וטלפון
+      // רק מנהל מערך משנה תפקיד/סטטוס/אתר; משתמש יכול לעדכן רק שם, טלפון והעדפות התראה
       allow update: if isAdmin()
-        || (signedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'updatedAt']));
+        || (signedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'notifyPrefs', 'updatedAt']));
 
       allow delete: if isAdmin();
+    }
+
+    // ---------- הגדרות מערכת (מדדי התראה) ----------
+    match /settings/{id} {
+      allow read: if approved();
+      allow write: if isAdmin();
     }
 
     // ---------- מנופים ----------

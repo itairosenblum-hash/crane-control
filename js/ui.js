@@ -1,7 +1,7 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
 import { login, logout, onAuth } from "./auth.js";
 import * as api from "./firestore.js";
-import { THRESHOLDS, HISTORY_HOURS } from "./config.js";
+import { HISTORY_HOURS } from "./config.js";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -119,6 +119,59 @@ function errMsg(e) {
 }
 const onErr = (e) => toast(errMsg(e), "error");
 
+// ---------- התראות למשתמש ----------
+const DEFAULT_PREFS = { enabled: true, minLevel: "critical", browser: false, sound: true };
+const getPrefs = () => ({ ...DEFAULT_PREFS, ...(state.profile?.notifyPrefs || {}) });
+let swReg = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((r) => { swReg = r; }).catch(() => {});
+}
+function beep(level) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const times = level === "critical" ? 3 : 1;
+    for (let i = 0; i < times; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = level === "critical" ? 880 : 660;
+      o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + i * 0.3;
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      o.start(t); o.stop(t + 0.26);
+    }
+  } catch { /* ignore */ }
+}
+async function systemNotify(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return false;
+  const opts = { body, tag, renotify: true, dir: "rtl", lang: "he" };
+  try {
+    if (swReg) await swReg.showNotification(title, opts);
+    else new Notification(title, opts);
+    return true;
+  } catch { return false; }
+}
+function deliverAlert({ level, title, body, tag, force = false }) {
+  const prefs = getPrefs();
+  if (!force) {
+    if (!prefs.enabled) return;
+    if (level === "warning" && prefs.minLevel !== "warning") return;
+  }
+  toast(title, level === "critical" ? "error" : "info");
+  if (prefs.sound) beep(level);
+  if (prefs.browser) systemNotify(title, body, tag);
+}
+function notifyOp(op) {
+  const a = api.analyzePreCheck(op.preCheck || {});
+  if (!a.level) return;
+  deliverAlert({
+    level: a.level,
+    title: `${a.level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — מנוף ${op.craneId}`,
+    body: `${op.operatorName} · ${op.site}\n${[...a.critical, ...a.warning].join(" · ")}`,
+    tag: op.id,
+  });
+}
+
 function rememberSites(list) {
   list.forEach((x) => { const s = (x.site ?? x.assignedSite ?? "").trim(); if (s) knownSites.add(s); });
   const dl = $("#sites-list");
@@ -175,6 +228,7 @@ function route() {
   if (!p) return renderRequestForm();
   if (p.status === "rejected") return renderBlocked();
   if (p.status !== "approved") return renderPending();
+  track(api.watchAlertSettings(() => document.dispatchEvent(new Event("alerts-changed")), onErr));
   if (p.role === "admin") return renderAdmin();
   if (p.role === "site_manager") return renderSiteManager();
   if (p.role === "operator") return renderOperator();
@@ -314,7 +368,11 @@ function toggleField(name, label) {
       </div>
     </div>`;
 }
-function levelField(name, label, min) {
+function thresholdHint(key) {
+  const c = api.getAlertSettings()[key];
+  return c.enabled ? `התראה ראשונית מתחת ל-${c.warn}% · חמורה מתחת ל-${c.crit}%` : "ללא התראה על מדד זה";
+}
+function levelField(name, label, key) {
   return `
     <div class="py-2.5 border-b border-slate-100">
       <div class="flex items-center justify-between gap-3 mb-2">
@@ -326,7 +384,7 @@ function levelField(name, label, min) {
         </div>
       </div>
       <input type="range" min="0" max="100" step="5" value="0" class="w-full h-8" data-range="${name}" aria-label="${label}">
-      <div class="text-xs text-slate-400">סף התרעה: מתחת ל-${min}%</div>
+      <div class="text-xs text-slate-400" data-hint="${key}">${thresholdHint(key)}</div>
     </div>`;
 }
 
@@ -351,8 +409,8 @@ function mountPreCheck(root, v) {
       </section>
       <section class="card">
         <h2 class="sec-title">3 · נוזלים</h2>
-        ${levelField("fuelLevel", "⛽ דלק", THRESHOLDS.fuelMin)}
-        ${levelField("ureaLevel", "💧 אוראה", THRESHOLDS.ureaMin)}
+        ${levelField("fuelLevel", "⛽ דלק", "fuel")}
+        ${levelField("ureaLevel", "💧 אוראה", "urea")}
         ${toggleField("oilLevelOk", PRE_TOGGLES.oilLevelOk)}
         ${toggleField("waterLevelOk", PRE_TOGGLES.waterLevelOk)}
       </section>
@@ -394,6 +452,9 @@ function mountPreCheck(root, v) {
     refresh();
   });
   form.addEventListener("submit", (e) => { e.preventDefault(); submitPreCheck(v, form); });
+  const onAlerts = () => { if (form.isConnected) refresh(); };
+  document.addEventListener("alerts-changed", onAlerts);
+  track(() => document.removeEventListener("alerts-changed", onAlerts));
 }
 
 function drawCraneGrid(v) {
@@ -440,10 +501,11 @@ function collectPreCheck(v, form) {
 function drawPreIssues(v, form) {
   const { values } = collectPreCheck(v, form);
   const a = api.analyzePreCheck(values);
-  const all = [...a.critical, ...a.equipment];
-  $("#pre-issues").innerHTML = all.length ? `
-    <div class="rounded-2xl border-2 border-red-300 bg-red-50 p-4">
-      <div class="font-extrabold text-red-800 mb-2">⚠️ נמצאו ליקויים — יופיעו כהתרעה אצל מנהל האתר</div>
+  $$("[data-hint]").forEach((el) => { el.textContent = thresholdHint(el.dataset.hint); });
+  const crit = a.level === "critical";
+  $("#pre-issues").innerHTML = a.level ? `
+    <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-4">
+      <div class="font-extrabold ${crit ? "text-red-800" : "text-amber-900"} mb-2">${crit ? "🚨 נמצאו ליקויים חמורים" : "⚠️ נמצאו ליקויים"} — יופיעו כהתרעה אצל המנהלים</div>
       <div class="flex flex-wrap gap-2">${issueChips(values)}</div>
     </div>` : "";
 }
@@ -456,11 +518,11 @@ async function submitPreCheck(v, form) {
     return;
   }
   const a = api.analyzePreCheck(values);
-  if (a.critical.length || a.equipment.length) {
+  if (a.level) {
     const ok = await confirmDialog({
-      title: "נמצאו ליקויים בבדיקת הפתיחה",
+      title: a.level === "critical" ? "נמצאו ליקויים חמורים בבדיקת הפתיחה" : "נמצאו ליקויים בבדיקת הפתיחה",
       html: `<div class="flex flex-wrap gap-2 mb-3">${issueChips(values)}</div>
-             <p>הליקויים יירשמו ויוצגו כהתרעה למנהל האתר. להתחיל הפעלה בכל זאת?</p>`,
+             <p>הליקויים יירשמו ויוצגו כהתרעה למנהלים. להתחיל הפעלה בכל זאת?</p>`,
       confirmText: "התחל בכל זאת", danger: true,
     });
     if (!ok) return;
@@ -586,12 +648,14 @@ function issueChips(pc = {}) {
   const a = api.analyzePreCheck(pc);
   return [
     ...a.critical.map((x) => `<span class="badge bg-red-600 text-white">${esc(x)}</span>`),
-    ...a.equipment.map((x) => `<span class="badge bg-orange-500 text-white">${esc(x)}</span>`),
+    ...a.warning.map((x) => `<span class="badge bg-amber-400 text-slate-900">${esc(x)}</span>`),
   ].join("");
 }
-const hasIssues = (op) => {
-  const a = api.analyzePreCheck(op.preCheck || {});
-  return a.critical.length + a.equipment.length > 0;
+const opLevel = (op) => api.analyzePreCheck(op.preCheck || {}).level;
+const hasIssues = (op) => !!opLevel(op);
+const LEVEL_BADGE = {
+  critical: `<span class="badge bg-red-600 text-white">🚨 חמורה</span>`,
+  warning: `<span class="badge bg-amber-400 text-slate-900">⚠️ ראשונית</span>`,
 };
 const opStatusBadge = (op) => (op.status === "active"
   ? `<span class="badge bg-amber-100 text-amber-900"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>פעיל</span>`
@@ -609,15 +673,19 @@ function postCheckSummary(op) {
 }
 
 function drawAlerts(el, ops) {
-  const list = ops.filter(hasIssues);
+  const rank = { critical: 0, warning: 1 };
+  const list = ops.filter(hasIssues).sort((a, b) => rank[opLevel(a)] - rank[opLevel(b)]);
+  const nCrit = list.filter((o) => opLevel(o) === "critical").length;
   el.innerHTML = list.length ? `
     <section class="rounded-2xl border-2 border-red-400 bg-red-50 p-4 mb-6 shadow-sm">
-      <h2 class="text-lg font-black text-red-800 mb-3 flex items-center gap-2">🚨 התרעות ופערים קריטיים <span class="badge bg-red-600 text-white">${list.length}</span></h2>
+      <h2 class="text-lg font-black text-red-800 mb-3 flex flex-wrap items-center gap-2">🚨 התרעות ופערים
+        ${nCrit ? `<span class="badge bg-red-600 text-white">${nCrit} חמורות</span>` : ""}
+        ${list.length - nCrit ? `<span class="badge bg-amber-400 text-slate-900">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
       <div class="grid gap-3 md:grid-cols-2">
         ${list.map((op) => `
-          <div class="bg-white rounded-xl border border-red-200 p-3">
+          <div class="bg-white rounded-xl border border-red-200 border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : "border-r-amber-400"} p-3">
             <div class="flex items-center justify-between gap-2 mb-1">
-              <div class="font-black text-lg">מנוף ${esc(op.craneId)}</div>${opStatusBadge(op)}
+              <div class="font-black text-lg">מנוף ${esc(op.craneId)}</div><div class="flex gap-1">${LEVEL_BADGE[opLevel(op)]}${opStatusBadge(op)}</div>
             </div>
             <div class="text-sm text-slate-600 mb-2">${esc(op.operatorName)} · ${esc(op.site)} · ${esc(op.preCheck?.workLocation)} · ${fmtDT(op.startTime)}</div>
             <div class="flex flex-wrap gap-1.5">${issueChips(op.preCheck)}</div>
@@ -629,7 +697,7 @@ function drawAlerts(el, ops) {
 
 function drawActiveCards(el, ops, { showSite = false } = {}) {
   el.innerHTML = ops.length ? ops.map((op) => `
-    <div class="card border-r-4 ${hasIssues(op) ? "border-r-red-500" : "border-r-amber-500"}">
+    <div class="card border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : opLevel(op) === "warning" ? "border-r-amber-400" : "border-r-slate-300"}">
       <div class="flex items-start justify-between gap-2">
         <div>
           <div class="text-xs text-slate-500 font-bold">מנוף${showSite ? ` · ${esc(op.site)}` : ""}</div>
@@ -692,7 +760,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
           <th class="th">סטטוס</th><th class="th">ליקויים</th><th class="th">סגירה / הערות</th>
         </tr></thead>
         <tbody>
-          ${ops.map((op) => `<tr class="${hasIssues(op) ? "bg-red-50/50" : ""}">
+          ${ops.map((op) => `<tr class="${opLevel(op) === "critical" ? "bg-red-50/60" : opLevel(op) === "warning" ? "bg-amber-50/60" : ""}">
             <td class="td font-black">${esc(op.craneId)}</td>${showSite ? `<td class="td">${esc(op.site)}</td>` : ""}
             <td class="td">${esc(op.operatorName)}</td><td class="td">${esc(op.preCheck?.workLocation)}</td>
             <td class="td whitespace-nowrap">${fmtDT(op.startTime)}</td>
@@ -708,7 +776,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
 }
 
 /** בונה לוח בקרה מלא בתוך container. site ריק = כל האתרים */
-function mountDashboard(container, getSite) {
+function mountDashboard(container, getSite, { notifyScope = "" } = {}) {
   container.innerHTML = `
     <div id="d-alerts"></div>
     <section class="mb-6">
@@ -736,9 +804,23 @@ function mountDashboard(container, getSite) {
     drawLog($("#d-log", container), recent, { showSite });
   };
 
+  // התראה על הפעלות חדשות עם ליקויים (רק אחרי הטעינה הראשונה של כל מקור)
+  const seen = new Set();
+  const ready = { active: false, recent: false };
+  const scan = (src, list) => {
+    list.forEach((o) => {
+      if (seen.has(o.id)) return;
+      seen.add(o.id);
+      if (ready[src] && o.status === "active" && (!notifyScope || o.site === notifyScope)) notifyOp(o);
+    });
+    ready[src] = true;
+  };
+
   track(api.watchCranes(null, (l) => { v.cranes = l; rememberSites(l); draw(); }, onErr));
-  track(api.watchActiveOperations((l) => { v.active = l; draw(); }, onErr));
-  track(api.watchOperationsSince(HISTORY_HOURS, (l) => { v.recent = l; draw(); }, onErr));
+  track(api.watchActiveOperations((l) => { scan("active", l); v.active = l; draw(); }, onErr));
+  track(api.watchOperationsSince(HISTORY_HOURS, (l) => { scan("recent", l); v.recent = l; draw(); }, onErr));
+  document.addEventListener("alerts-changed", draw);
+  track(() => document.removeEventListener("alerts-changed", draw));
 
   container.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-force]");
@@ -767,7 +849,7 @@ function renderSiteManager() {
       <div class="text-left text-sm text-slate-500"><div class="text-xs">עודכן בזמן אמת</div><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span></div>
     </div>
     <div id="dash"></div>`);
-  mountDashboard($("#dash"), () => site);
+  mountDashboard($("#dash"), () => site, { notifyScope: site });
 }
 
 // =====================================================================
@@ -781,6 +863,7 @@ function renderAdmin() {
       <button class="tab" data-tab="users" role="tab">👥 משתמשים <span id="tab-pending-cnt"></span></button>
       <button class="tab" data-tab="cranes" role="tab">🏗️ מנופים</button>
       <button class="tab" data-tab="history" role="tab">🗂️ היסטוריה</button>
+      <button class="tab" data-tab="alerts" role="tab">🔔 הגדרות התראות</button>
     </nav>
     <section data-panel="overview">
       <div class="flex flex-wrap items-center gap-3 mb-4">
@@ -798,7 +881,8 @@ function renderAdmin() {
       </form>
       <div id="crane-list">${spinner}</div>
     </section>
-    <section data-panel="history" hidden></section>`);
+    <section data-panel="history" hidden></section>
+    <section data-panel="alerts" hidden></section>`);
 
   const v = { tab: "overview", users: [], cranes: [] };
 
@@ -855,6 +939,9 @@ function renderAdmin() {
 
   // --- היסטוריה
   mountHistory($('[data-panel="history"]'));
+
+  // --- הגדרות התראות
+  mountAlertSettings($('[data-panel="alerts"]'));
 }
 
 // ----- ניהול משתמשים -----
@@ -1045,14 +1132,14 @@ function exportCsv(ops) {
   const yn = (b) => (b === true ? "תקין" : b === false ? "לא תקין" : "");
   const vy = (b) => (b ? "כן" : "לא");
   const head = ["מנוף", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
-    "שמן", "מים", "רצועות", "שקלים", "חתולים", "ליקויים", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
+    "שמן", "מים", "רצועות", "שקלים", "חתולים", "התראות", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
     return [o.craneId, o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
       opDuration(o) || "", o.status === "active" ? "פעיל" : "הושלם", pc.engineHours, pc.fuelLevel, pc.ureaLevel,
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
-      [...api.analyzePreCheck(pc).critical, ...api.analyzePreCheck(pc).equipment].join("; "),
+      (({ critical, warning }) => [...critical.map((x) => `חמורה: ${x}`), ...warning.map((x) => `ראשונית: ${x}`)].join("; "))(api.analyzePreCheck(pc)),
       ...(o.postCheck ? POST_ITEMS.map(([k]) => vy(po[k])) : ["", "", "", "", ""]), po.notes || ""];
   });
   const csv = [head, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
@@ -1062,4 +1149,210 @@ function exportCsv(ops) {
   a.download = `crane-operations-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// =====================================================================
+// הגדרות התראות (מנהל מערך)
+// =====================================================================
+const SEV_OPTS = [["off", "ללא"], ["warning", "ראשונית"], ["critical", "חמורה"]];
+
+function switchInput(name, checked, label, sub = "") {
+  return `
+    <label class="flex items-center justify-between gap-4 py-3 cursor-pointer">
+      <span><span class="font-bold text-slate-800">${label}</span>${sub ? `<span class="block text-xs text-slate-500">${sub}</span>` : ""}</span>
+      <span class="relative shrink-0">
+        <input type="checkbox" name="${name}" class="peer sr-only" ${checked ? "checked" : ""}>
+        <span class="block w-12 h-7 rounded-full bg-slate-300 transition peer-checked:bg-emerald-600"></span>
+        <span class="absolute top-1 right-1 w-5 h-5 rounded-full bg-white shadow transition peer-checked:-translate-x-5"></span>
+      </span>
+    </label>`;
+}
+
+function levelRow(key, label, cfg) {
+  return `
+    <div class="py-4 border-b border-slate-100" data-level-row="${key}">
+      <div class="flex items-center justify-between gap-3">
+        <div class="font-extrabold text-lg">${label}</div>
+        <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
+          <input type="checkbox" name="${key}.enabled" class="w-5 h-5 accent-emerald-600" ${cfg.enabled ? "checked" : ""}> פעיל
+        </label>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mt-3">
+        <div>
+          <label class="lbl"><span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 ml-1"></span>ראשונית — מתחת ל-</label>
+          <div class="flex items-center gap-1"><input type="number" name="${key}.warn" min="1" max="100" class="inp-sm text-center font-bold" value="${cfg.warn}"><span class="font-bold text-slate-500">%</span></div>
+        </div>
+        <div>
+          <label class="lbl"><span class="inline-block w-2.5 h-2.5 rounded-full bg-red-600 ml-1"></span>חמורה — מתחת ל-</label>
+          <div class="flex items-center gap-1"><input type="number" name="${key}.crit" min="0" max="99" class="inp-sm text-center font-bold" value="${cfg.crit}"><span class="font-bold text-slate-500">%</span></div>
+        </div>
+      </div>
+      <div class="mt-3 h-3 rounded-full overflow-hidden flex flex-row-reverse bg-emerald-500" data-bar="${key}" dir="ltr"></div>
+      <div class="flex justify-between text-[10px] text-slate-400 mt-0.5" dir="ltr"><span>0%</span><span>100%</span></div>
+    </div>`;
+}
+
+function mountAlertSettings(panel) {
+  const prefs = getPrefs();
+  const perm = () => (!("Notification" in window) ? "unsupported" : Notification.permission);
+  const permText = { granted: "✓ מאושר במכשיר זה", denied: "✗ נחסם — יש לאשר בהגדרות הדפדפן", default: "יתבקש אישור בשמירה", unsupported: "הדפדפן לא תומך בהתראות" };
+
+  panel.innerHTML = `
+    <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
+      <form id="np-form" class="card">
+        <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
+        <p class="text-sm text-slate-500 mb-2">מתי ואיך אתה מקבל התראה על הפעלה חדשה עם ליקויים.</p>
+        <div class="divide-y divide-slate-100">
+          ${switchInput("enabled", prefs.enabled, "לקבל התראות")}
+          <div class="py-3" id="np-level">
+            <div class="font-bold text-slate-800 mb-2">רמת התראה</div>
+            <div class="grid grid-cols-2 gap-2">
+              ${[["critical", "חמורות בלבד", "🚨"], ["warning", "ראשוניות וחמורות", "⚠️"]].map(([v, l, i]) => `
+                <label class="crane-opt !p-3 cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50 has-[:checked]:ring-4 has-[:checked]:ring-amber-200">
+                  <input type="radio" name="minLevel" value="${v}" class="sr-only" ${prefs.minLevel === v ? "checked" : ""}>
+                  <div class="text-xl">${i}</div><div class="font-bold text-sm">${l}</div>
+                </label>`).join("")}
+            </div>
+          </div>
+          ${switchInput("browser", prefs.browser, "התראת מערכת (טלפון / מחשב)", `<span id="np-perm">${permText[perm()]}</span>`)}
+          ${switchInput("sound", prefs.sound, "צליל התראה", "צפצוף אחד לראשונית, שלושה לחמורה")}
+        </div>
+        <p class="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-2">ההתראות מתקבלות כל עוד המערכת פתוחה בדפדפן, גם כשהלשונית ברקע.</p>
+        <div class="flex gap-2 mt-4">
+          <button class="btn btn-dark flex-1">שמור</button>
+          <button type="button" id="np-test" class="btn btn-ghost">שלח בדיקה</button>
+        </div>
+      </form>
+
+      <form id="as-form" class="card">
+        <h2 class="sec-title !mb-1">📏 מדדי התראה</h2>
+        <p class="text-sm text-slate-500 mb-1">חל על כל המערכת: קובע מה נחשב התראה ראשונית ומה התראה חמורה בבדיקת הפתיחה.</p>
+        <div id="as-meta" class="text-xs text-slate-400 mb-2"></div>
+        ${levelRow("fuel", "⛽ דלק", api.getAlertSettings().fuel)}
+        ${levelRow("urea", "💧 אוראה", api.getAlertSettings().urea)}
+        <div class="pt-4">
+          <div class="font-extrabold text-lg mb-1">ממצא "לא תקין"</div>
+          <p class="text-xs text-slate-500 mb-2">איזו התראה נוצרת כשהמפעיל מסמן פריט כלא תקין</p>
+          <div id="as-checks"></div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button class="btn btn-primary flex-1">שמור מדדים</button>
+          <button type="button" id="as-reset" class="btn btn-ghost">ברירת מחדל</button>
+        </div>
+      </form>
+    </div>`;
+
+  // ---- ההתראות שלי
+  const np = $("#np-form", panel);
+  const syncNp = () => {
+    const on = np.elements.enabled.checked;
+    $$("#np-level, [name=browser], [name=sound]", np).forEach((el) => {
+      (el.closest("label") || el).classList.toggle("opacity-40", !on);
+    });
+  };
+  np.addEventListener("change", syncNp);
+  syncNp();
+  np.onsubmit = async (e) => {
+    e.preventDefault();
+    const next = {
+      enabled: np.elements.enabled.checked,
+      minLevel: np.elements.minLevel.value,
+      browser: np.elements.browser.checked,
+      sound: np.elements.sound.checked,
+    };
+    if (next.enabled && next.browser && perm() === "default") await Notification.requestPermission();
+    $("#np-perm", np).textContent = permText[perm()];
+    if (next.browser && perm() !== "granted") toast("התראות מערכת לא אושרו בדפדפן — יוצגו התראות בתוך המערכת בלבד", "error");
+    try { await api.saveNotifyPrefs(state.user.uid, next); toast("העדפות ההתראות נשמרו", "success"); } catch (err) { onErr(err); }
+  };
+  $("#np-test", panel).onclick = async () => {
+    if (np.elements.browser.checked && perm() === "default") await Notification.requestPermission();
+    $("#np-perm", np).textContent = permText[perm()];
+    const level = np.elements.minLevel.value === "warning" ? "warning" : "critical";
+    const prefsNow = { browser: np.elements.browser.checked, sound: np.elements.sound.checked };
+    toast(level === "critical" ? "🚨 בדיקה — התראה חמורה" : "⚠️ בדיקה — התראה ראשונית", level === "critical" ? "error" : "info");
+    if (prefsNow.sound) beep(level);
+    if (prefsNow.browser && !(await systemNotify("בדיקת התראה — בקרת מנופים", "כך תיראה התראה על ליקוי במנוף", "test"))) {
+      toast("התראת מערכת לא נשלחה — בדוק הרשאות דפדפן", "error");
+    }
+  };
+
+  // ---- מדדי התראה
+  const as = $("#as-form", panel);
+  let checks = { ...api.getAlertSettings().checks };
+  let dirty = false;
+
+  const drawChecks = () => {
+    $("#as-checks", as).innerHTML = Object.entries(api.CHECK_LABELS).map(([k, label]) => `
+      <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-slate-100 last:border-0">
+        <span class="font-bold">${esc(label.replace(" לא תקין", "").replace("ליקוי ב", ""))}</span>
+        <div class="seg" data-check="${k}">
+          ${SEV_OPTS.map(([v, l]) => `<button type="button" class="seg-btn" data-sev="${v}" aria-pressed="${checks[k] === v}">${l}</button>`).join("")}
+        </div>
+      </div>`).join("");
+  };
+  const drawBars = () => {
+    ["fuel", "urea"].forEach((k) => {
+      const en = as.elements[`${k}.enabled`].checked;
+      const w = Number(as.elements[`${k}.warn`].value) || 0;
+      const c = Number(as.elements[`${k}.crit`].value) || 0;
+      const row = $(`[data-level-row="${k}"]`, as);
+      $$("input[type=number]", row).forEach((i) => { i.disabled = !en; });
+      const bar = $(`[data-bar="${k}"]`, as);
+      bar.classList.toggle("opacity-30", !en);
+      bar.innerHTML = `<div class="bg-red-600" style="width:${Math.min(c, 100)}%"></div><div class="bg-amber-400" style="width:${Math.max(0, Math.min(w, 100) - Math.min(c, 100))}%"></div>`;
+      bar.style.flexDirection = "row";
+    });
+  };
+  const fill = (cfg) => {
+    ["fuel", "urea"].forEach((k) => {
+      as.elements[`${k}.enabled`].checked = cfg[k].enabled;
+      as.elements[`${k}.warn`].value = cfg[k].warn;
+      as.elements[`${k}.crit`].value = cfg[k].crit;
+    });
+    checks = { ...cfg.checks };
+    drawChecks();
+    drawBars();
+  };
+  fill(api.getAlertSettings());
+
+  as.addEventListener("input", () => { dirty = true; drawBars(); });
+  as.addEventListener("click", (e) => {
+    const b = e.target.closest(".seg-btn");
+    if (!b) return;
+    checks[b.closest("[data-check]").dataset.check] = b.dataset.sev;
+    dirty = true;
+    drawChecks();
+  });
+  $("#as-reset", panel).onclick = () => { fill(api.DEFAULT_ALERTS); dirty = true; toast("הוחזרו ערכי ברירת מחדל — לחץ 'שמור מדדים' כדי להחיל"); };
+
+  const onAlerts = () => {
+    if (!panel.isConnected) return;
+    if (!dirty) fill(api.getAlertSettings());
+  };
+  document.addEventListener("alerts-changed", onAlerts);
+  track(() => document.removeEventListener("alerts-changed", onAlerts));
+  track(api.watchAlertSettings((_, raw) => {
+    $("#as-meta", as).textContent = raw?.updatedBy ? `עודכן לאחרונה ע"י ${raw.updatedBy} · ${fmtDT(raw.updatedAt)}` : "משתמש בערכי ברירת המחדל";
+  }, onErr));
+
+  as.onsubmit = async (e) => {
+    e.preventDefault();
+    const data = { checks };
+    for (const [k, l] of [["fuel", "דלק"], ["urea", "אוראה"]]) {
+      const warn = Number(as.elements[`${k}.warn`].value);
+      const crit = Number(as.elements[`${k}.crit`].value);
+      const enabled = as.elements[`${k}.enabled`].checked;
+      if (enabled) {
+        if (!Number.isFinite(warn) || !Number.isFinite(crit) || warn < 1 || warn > 100 || crit < 0 || crit > 100) return toast(`${l}: ערכים חייבים להיות בין 0 ל-100`, "error");
+        if (crit >= warn) return toast(`${l}: סף חמורה חייב להיות נמוך מסף ראשונית`, "error");
+      }
+      data[k] = { enabled, warn, crit };
+    }
+    try {
+      await api.saveAlertSettings(data, state.profile.name);
+      dirty = false;
+      toast("מדדי ההתראה עודכנו לכל המערכת", "success");
+    } catch (err) { onErr(err); }
+  };
 }

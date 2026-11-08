@@ -2,20 +2,23 @@
 // יש להחליף את הערכים באלה של פרויקט ה-Firebase שלך:
 // Firebase Console → Project settings → General → Your apps → Web app → SDK setup and configuration
 // פרויקט: crane (gen-lang-client-0743333908)
-// חסרים רק apiKey ו-appId — מופיעים אחרי רישום Web App בפרויקט.
+// חסר רק apiKey — Project settings → General → Your apps → Web API Key / SDK config.
 export const firebaseConfig = {
   apiKey: "PASTE_API_KEY_HERE",
   authDomain: "gen-lang-client-0743333908.firebaseapp.com",
   projectId: "gen-lang-client-0743333908",
   storageBucket: "gen-lang-client-0743333908.firebasestorage.app",
   messagingSenderId: "784223603072",
-  appId: "PASTE_APP_ID_HERE",
+  appId: "1:784223603072:web:88d9aa9c50f664aa4e5965",
 };
 
-// ספי התרעה (באחוזים) — מתחת לערכים אלה הבדיקה מסומנת כליקוי קריטי
-export const THRESHOLDS = {
-  fuelMin: 25,
-  ureaMin: 20,
+// ערכי ברירת מחדל לספי התראה (באחוזים). מנהל המערך יכול לשנות אותם
+// מתוך המערכת (לשונית "הגדרות התראות"); הערכים כאן משמשים רק עד שנשמרות הגדרות.
+export const DEFAULTS = {
+  fuelWarn: 30,  // מתחת לזה — התראה ראשונית
+  fuelCrit: 15,  // מתחת לזה — התראה חמורה
+  ureaWarn: 25,
+  ureaCrit: 10,
 };
 
 // חלון היומן בלוח הבקרה של מנהל האתר (בשעות)

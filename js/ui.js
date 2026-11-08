@@ -571,7 +571,7 @@ function drawPreIssues(v, form) {
   const crit = a.level === "critical";
   $("#pre-issues").innerHTML = a.level ? `
     <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-4">
-      <div class="font-extrabold ${crit ? "text-red-800" : "text-amber-900"} mb-2">${crit ? "🚨 נמצאו ליקויים חמורים" : "⚠️ נמצאו ליקויים"} — יופיעו כהתרעה אצל המנהלים</div>
+      <div class="font-extrabold ${crit ? "text-red-800" : "text-amber-900"} mb-2">${crit ? "🚨 נמצאו ליקויים חמורים" : "⚠️ נמצאו ליקויים"} — יופיעו כהתראה אצל המנהלים</div>
       <div class="flex flex-wrap gap-2">${issueChips(values)}</div>
       ${a.blockers.length ? `<div class="mt-3 rounded-xl bg-red-600 text-white font-extrabold p-3">⛔ לא ניתן לפתוח הפעלה: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
     </div>` : "";
@@ -600,7 +600,7 @@ async function submitPreCheck(v, form) {
     const ok = await confirmDialog({
       title: a.level === "critical" ? "נמצאו ליקויים חמורים בבדיקת הפתיחה" : "נמצאו ליקויים בבדיקת הפתיחה",
       html: `<div class="flex flex-wrap gap-2 mb-3">${issueChips(values)}</div>
-             <p>הליקויים יירשמו ויוצגו כהתרעה למנהלים. להתחיל הפעלה בכל זאת?</p>`,
+             <p>הליקויים יירשמו ויוצגו כהתראה למנהלים. להתחיל הפעלה בכל זאת?</p>`,
       confirmText: "התחל בכל זאת", danger: true,
     });
     if (!ok) return;
@@ -757,7 +757,7 @@ function drawAlerts(el, ops) {
   const nCrit = list.filter((o) => opLevel(o) === "critical").length;
   el.innerHTML = list.length ? `
     <section class="rounded-2xl border-2 border-red-400 bg-red-50 p-4 mb-6 shadow-sm">
-      <h2 class="text-lg font-black text-red-800 mb-3 flex flex-wrap items-center gap-2">🚨 התרעות ופערים
+      <h2 class="text-lg font-black text-red-800 mb-3 flex flex-wrap items-center gap-2">🚨 התראות ופערים
         ${nCrit ? `<span class="badge bg-red-600 text-white">${nCrit} חמורות</span>` : ""}
         ${list.length - nCrit ? `<span class="badge bg-amber-400 text-slate-900">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
       <div class="grid gap-3 md:grid-cols-2">
@@ -771,7 +771,7 @@ function drawAlerts(el, ops) {
           </div>`).join("")}
       </div>
     </section>` : `
-    <div class="rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-3 mb-6">✓ אין התרעות פתוחות ב-${HISTORY_HOURS} השעות האחרונות</div>`;
+    <div class="rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-3 mb-6">✓ אין התראות פתוחות ב-${HISTORY_HOURS} השעות האחרונות</div>`;
 }
 
 function drawActiveCards(el, ops, { showSite = false } = {}) {

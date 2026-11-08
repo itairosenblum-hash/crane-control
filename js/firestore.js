@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082314";
+import { db } from "./auth.js?v=202611082316";
 import {
-  collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
-  orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
+  collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
+  orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082314";
+import { DEFAULTS } from "./config.js?v=202611082316";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -12,6 +12,17 @@ export const COL = { users: "craneUsers", settings: "craneSettings", cranes: "cr
 
 /** שגיאה עסקית עם הודעה בעברית שמוצגת למשתמש כמות שהיא */
 export class AppError extends Error {}
+
+// ---------- נעילת כתיבה (מצב "תצוגה כמשתמש") ----------
+// כל כתיבה למסד עוברת דרך ארבע הפונקציות האלה. כשהנעילה פעילה — שום דבר לא נכתב.
+let readOnly = false;
+export const setReadOnly = (v) => { readOnly = !!v; };
+export const isReadOnly = () => readOnly;
+const blocked = () => Promise.reject(new AppError("מצב תצוגה: שום פעולה לא נשמרת"));
+const setDoc = (...a) => (readOnly ? blocked() : fsSetDoc(...a));
+const updateDoc = (...a) => (readOnly ? blocked() : fsUpdateDoc(...a));
+const deleteDoc = (...a) => (readOnly ? blocked() : fsDeleteDoc(...a));
+const runTransaction = (...a) => (readOnly ? blocked() : fsRunTransaction(...a));
 
 const withId = (d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) });
 const isNum = (n) => typeof n === "number" && !Number.isNaN(n);
@@ -96,8 +107,9 @@ export function saveAlertSettings(data, updatedBy) {
 
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
+  if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082314");
+  const { app } = await import("./auth.js?v=202611082316");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -329,6 +341,7 @@ export function siteNameFor(siteId, sites = []) {
  * מחזיר { added, updated, skipped }.
  */
 export async function syncCranesFromEquipment(equipment, sites, cranes) {
+  if (readOnly) return { added: 0, updated: 0, skipped: 0, retired: 0 };
   let added = 0, updated = 0, skipped = 0, retired = 0;
   const relevant = equipment.filter((e) => isRelevantType(e.type));
   const relevantIds = new Set(relevant.map((e) => e.id));
@@ -367,6 +380,7 @@ export async function syncCranesFromEquipment(equipment, sites, cranes) {
 
 /** מרענן את עותק תאריכי הרישיון על המשתמשים מתוך רשומות המנופאים */
 export async function syncUserLicenses(users, operators) {
+  if (readOnly) return { added: 0, updated: 0, skipped: 0, retired: 0 };
   const byId = new Map(operators.map((o) => [o.id, o]));
   await Promise.all(users.filter((u) => u.operatorRecordId).map(async (u) => {
     const op = byId.get(u.operatorRecordId);
@@ -385,6 +399,7 @@ export function linkCraneEquipment(craneId, eq) {
 
 /** מרענן את תאריך התסקיר השמור על המנופים מתוך אוסף equipment */
 export async function syncCraneInspections(cranes) {
+  if (readOnly) return { added: 0, updated: 0, skipped: 0, retired: 0 };
   const linked = cranes.filter((c) => c.equipmentId);
   await Promise.all(linked.map(async (c) => {
     try {

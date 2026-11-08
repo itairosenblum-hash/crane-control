@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082314";
-import * as api from "./firestore.js?v=202611082314";
-import * as push from "./push.js?v=202611082314";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082314";
+import { login, logout, onAuth } from "./auth.js?v=202611082316";
+import * as api from "./firestore.js?v=202611082316";
+import * as push from "./push.js?v=202611082316";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082316";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -304,7 +304,7 @@ function shell(inner, { wide = true } = {}) {
     <datalist id="sites-list"></datalist>`;
   $("#btn-logout").onclick = () => logout();
   $("#btn-viewas") && ($("#btn-viewas").onclick = openViewAs);
-  $("#btn-viewas-exit") && ($("#btn-viewas-exit").onclick = () => { state.viewAs = null; state.closing = false; clearSubs(); route(); });
+  $("#btn-viewas-exit") && ($("#btn-viewas-exit").onclick = () => { state.viewAs = null; api.setReadOnly(false); state.closing = false; clearSubs(); route(); });
   $("#btn-install") && ($("#btn-install").onclick = doInstall);
   $("#btn-install-x") && ($("#btn-install-x").onclick = () => {
     try { localStorage.setItem(INSTALL_KEY, String(Date.now() + 3 * 864e5)); } catch { /* ignore */ }
@@ -405,7 +405,8 @@ onAuth((user) => {
   clearSubs();
   profileUnsub?.();
   profileUnsub = null;
-  Object.assign(state, { user, profile: null, routeKey: null, closing: false });
+  Object.assign(state, { user, profile: null, routeKey: null, closing: false, viewAs: null });
+  api.setReadOnly(false);
   if (!user) return renderLogin();
   $app.innerHTML = spinner;
   profileUnsub = api.watchUserProfile(user.uid, (profile) => {
@@ -429,6 +430,7 @@ function route() {
   if (p.status === "rejected") return renderBlocked();
   if (p.status !== "approved") return renderPending();
   track(api.watchAlertSettings(() => document.dispatchEvent(new Event("alerts-changed")), onErr));
+  api.setReadOnly(!!state.viewAs); // במצב תצוגה — נעילת כל הכתיבות למסד
   if (state.viewAs && isDeveloper()) {
     if (state.viewAs.profile.role === "site_manager") return renderSiteManager();
     return renderOperator();
@@ -756,7 +758,7 @@ async function submitPreCheck(root, v, form) {
     });
     if (!ok) return;
   }
-  rememberLocation(values.workLocation);
+  if (!state.viewAs) rememberLocation(values.workLocation);
   if (state.viewAs) { // מצב תצוגה — סימולציה בלבד, לא נשמר
     const crane = v.cranes.find((c) => c.id === v.selected);
     v.op = { id: "preview", craneId: v.selected, craneKind: api.kindOf(crane?.equipmentType), startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } };

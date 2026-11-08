@@ -291,6 +291,7 @@ function shell(inner, { wide = true } = {}) {
           <div class="font-bold leading-tight">בקרת מנופים</div>
           <div class="text-xs text-muted truncate">${sub}</div>
         </div>
+        ${state.profile?.status === "approved" && state.profile?.role === "admin" && !state.viewAs ? `<button id="btn-share" class="icon-btn" title="שיתוף בוואטסאפ" aria-label="שיתוף בוואטסאפ"><svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor" class="text-[#1FA855]" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.2-.2-.5-.3Z"/></svg></button>` : ""}
         ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="icon-btn" title="תצוגה כמשתמש" aria-label="תצוגה כמשתמש">${ICONS.eye}</button>` : ""}
         <button id="btn-logout" class="icon-btn" title="יציאה" aria-label="יציאה">${ICONS.logout}</button>
       </div>
@@ -304,6 +305,7 @@ function shell(inner, { wide = true } = {}) {
     <datalist id="sites-list"></datalist>`;
   $("#btn-logout").onclick = () => logout();
   $("#btn-viewas") && ($("#btn-viewas").onclick = openViewAs);
+  $("#btn-share") && ($("#btn-share").onclick = shareWhatsApp);
   $("#btn-viewas-exit") && ($("#btn-viewas-exit").onclick = () => { state.viewAs = null; api.setReadOnly(false); state.closing = false; clearSubs(); route(); });
   $("#btn-install") && ($("#btn-install").onclick = doInstall);
   $("#btn-install-x") && ($("#btn-install-x").onclick = () => {
@@ -1162,12 +1164,6 @@ function renderSiteManager() {
 function renderAdmin() {
   shell(`
     <div id="pending-banner"></div>
-    <div class="flex justify-end mb-3">
-      <button id="btn-share" class="btn btn-sm bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-600" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.2-.2-.5-.3Z"/></svg>
-        שתף בוואטסאפ
-      </button>
-    </div>
     <nav class="fixed bottom-0 inset-x-0 z-30 bg-white/85 backdrop-blur-xl border-t border-ink/5" style="padding-bottom: env(safe-area-inset-bottom)" role="tablist">
       <div class="max-w-6xl mx-auto grid grid-cols-5">
         <button class="tab" data-tab="overview" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h4v8H3zM10 3h4v18h-4zM17 8h4v13h-4z"/></svg><span>מצב</span></button>
@@ -1198,7 +1194,6 @@ function renderAdmin() {
 
   const v = { tab: "overview", users: [], cranes: [] };
 
-  $("#btn-share").onclick = shareWhatsApp;
 
   // --- טאבים
   const setTab = (t) => {

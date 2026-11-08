@@ -1,14 +1,14 @@
 // ===== הגדרות המערכת =====
 // יש להחליף את הערכים באלה של פרויקט ה-Firebase שלך:
 // Firebase Console → Project settings → General → Your apps → Web app → SDK setup and configuration
-// פרויקט: crane (gen-lang-client-0743333908)
+// פרויקט: cranes (cranes-a0759)
 export const firebaseConfig = {
-  apiKey: "AIzaSyCJWIyYuAHjSsy1a7EcfBSe_YXTs9x_xkc",
-  authDomain: "gen-lang-client-0743333908.firebaseapp.com",
-  projectId: "gen-lang-client-0743333908",
-  storageBucket: "gen-lang-client-0743333908.firebasestorage.app",
-  messagingSenderId: "784223603072",
-  appId: "1:784223603072:web:88d9aa9c50f664aa4e5965",
+  apiKey: "AIzaSyDDDPT3cjlyTzhU0iFe-A7y2YlZW-iTdIk",
+  authDomain: "cranes-a0759.firebaseapp.com",
+  projectId: "cranes-a0759",
+  storageBucket: "cranes-a0759.firebasestorage.app",
+  messagingSenderId: "832258069678",
+  appId: "1:832258069678:web:480d3c72f423725677c93f",
 };
 
 // ערכי ברירת מחדל לספי התראה (באחוזים). מנהל המערך יכול לשנות אותם

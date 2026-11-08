@@ -2,89 +2,123 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ---------- פונקציות עזר ----------
-    function signedIn() { return request.auth != null; }
-    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
-    function approved() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && me().status == 'approved';
+    // =================================================================
+    // פונקציות — מערכת הציוד הקיימת (users / sites / equipment / operators / meta)
+    // =================================================================
+    function isSignedIn() { return request.auth != null; }
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-    function role() { return me().role; }
-    function isAdmin() { return approved() && role() == 'admin'; }
-    function isManager() { return approved() && role() in ['admin', 'site_manager']; }
+    function isAdmin() { return isSignedIn() && myProfile().role == 'admin'; }
+    // משתמש של המערכת הקיימת = יש לו מסמך באוסף users
+    function isLegacyUser() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // =================================================================
+    // פונקציות — מערכת בקרת המנופים (craneUsers)
+    // =================================================================
+    function craneMe() { return get(/databases/$(database)/documents/craneUsers/$(request.auth.uid)).data; }
+    function craneApproved() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/craneUsers/$(request.auth.uid))
+        && craneMe().status == 'approved';
+    }
+    function craneRole() { return craneMe().role; }
+    function craneAdmin() { return craneApproved() && craneRole() == 'admin'; }
+    function craneManager() { return craneApproved() && craneRole() in ['admin', 'site_manager']; }
     function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
 
-    // ---------- משתמשים ----------
-    match /users/{uid} {
-      // משתמש קורא את עצמו; מנהל מערך קורא את כולם
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+    // =================================================================
+    // מערכת הציוד הקיימת — הרשאות כתיבה ללא שינוי.
+    // קריאה: משתמשי המערכת הקיימת + משתמשים מאושרים במערכת המנופים.
+    // =================================================================
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+    match /sites/{siteId} {
+      allow read: if isLegacyUser() || craneApproved();
+      allow write: if isAdmin();
+    }
+    match /equipment/{eqId} {
+      allow read: if isLegacyUser() || craneApproved();
+      allow write: if isAdmin();
+    }
+    match /operators/{opId} {
+      // מפעיל במערכת המנופים רואה רק את הרשומה שלו (בדיקת רישיון)
+      allow read: if isLegacyUser() || craneManager()
+        || (craneApproved() && craneMe().operatorRecordId == opId);
+      allow write: if isAdmin();
+    }
+    match /meta/{docId} {
+      allow read: if isLegacyUser();
+      allow write: if isAdmin();
+    }
 
-      // בקשת הרשאה: רק עבור עצמו, ורק בסטטוס ממתין וללא שיוך
-      allow create: if signedIn() && request.auth.uid == uid
+    // =================================================================
+    // מערכת בקרת המנופים
+    // =================================================================
+    match /craneUsers/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || craneAdmin());
+
+      // בקשת הרשאה: רק עבור עצמו, בסטטוס ממתין, ללא שיוך וללא קישור למנופאי
+      allow create: if isSignedIn() && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.role == 'pending'
         && request.resource.data.status == 'pending'
         && request.resource.data.assignedSite == ''
-        && request.resource.data.requestedRole in ['operator', 'site_manager'];
+        && request.resource.data.requestedRole in ['operator', 'site_manager']
+        && !('operatorRecordId' in request.resource.data);
 
-      // רק מנהל מערך משנה תפקיד/סטטוס/אתר; משתמש יכול לעדכן רק שם, טלפון והעדפות התראה
-      allow update: if isAdmin()
-        || (signedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'notifyPrefs', 'updatedAt']));
+      // רק מנהל מערך משנה תפקיד/סטטוס/אתר/קישור; משתמש מעדכן רק שם, טלפון והעדפות התראה
+      allow update: if craneAdmin()
+        || (isSignedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'notifyPrefs', 'updatedAt']));
 
-      allow delete: if isAdmin();
+      allow delete: if craneAdmin();
     }
 
-    // ---------- אפליקציית הציוד הקיימת (equipment) ----------
-    // נשמרת הגישה כפי שהייתה (פתוחה לכולם) כדי לא לשבור את האפליקציה הקיימת.
-    // מומלץ לסגור בהמשך — ראה README.
-    match /equipment/{document=**} {
-      allow read, write: if true;
+    match /craneSettings/{id} {
+      allow read: if craneApproved();
+      allow write: if craneAdmin();
     }
 
-    // ---------- הגדרות מערכת (מדדי התראה) ----------
-    match /settings/{id} {
-      allow read: if approved();
-      allow write: if isAdmin();
-    }
-
-    // ---------- מנופים ----------
     match /cranes/{craneId} {
-      allow read: if approved();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin()
-        // מנהל אתר / מפעיל באתר המנוף: רק שינוי סטטוס הפעלה (פתיחה/סגירה)
-        || (approved()
-            && onlyKeys(['currentStatus', 'activeOperationId', 'updatedAt'])
+      allow read: if craneApproved();
+      allow create, delete: if craneAdmin();
+      allow update: if craneAdmin()
+        // מנהל אתר / מפעיל באתר המנוף: רק סטטוס הפעלה ורענון תאריך תסקיר
+        || (craneApproved()
+            && onlyKeys(['currentStatus', 'activeOperationId', 'inspectionUntil', 'inspectionSyncedAt', 'updatedAt'])
             && request.resource.data.currentStatus in ['available', 'in_use', 'maintenance']
-            && (role() == 'site_manager' || resource.data.site == me().assignedSite));
+            && (craneRole() == 'site_manager' || resource.data.site == craneMe().assignedSite));
     }
 
-    // ---------- הפעלות ----------
     match /operations/{opId} {
-      allow read: if approved()
-        && (role() in ['admin', 'site_manager'] || resource.data.operatorId == request.auth.uid);
+      allow read: if craneApproved()
+        && (craneRole() in ['admin', 'site_manager'] || resource.data.operatorId == request.auth.uid);
 
-      // מפעיל פותח הפעלה רק בשמו ובאתר שלו
-      allow create: if approved()
+      // מפעיל פותח הפעלה רק בשמו, באתר שלו, ועם רשומת המנופאי המקושרת אליו
+      allow create: if craneApproved()
         && request.resource.data.operatorId == request.auth.uid
         && request.resource.data.status == 'active'
-        && request.resource.data.site == me().assignedSite;
+        && request.resource.data.site == craneMe().assignedSite
+        && request.resource.data.preCheck.operatorRecordId == craneMe().get('operatorRecordId', null);
 
-      allow update: if isAdmin()
+      allow update: if craneAdmin()
         // המפעיל סוגר את ההפעלה שלו
-        || (approved()
+        || (craneApproved()
             && resource.data.operatorId == request.auth.uid
             && resource.data.status == 'active'
             && request.resource.data.status == 'completed'
             && onlyKeys(['status', 'endTime', 'postCheck']))
         // מנהל אתר — סגירה כפויה
-        || (isManager()
+        || (craneManager()
             && resource.data.status == 'active'
             && request.resource.data.status == 'completed'
             && onlyKeys(['status', 'endTime', 'postCheck']));
 
-      allow delete: if isAdmin();
+      allow delete: if craneAdmin();
     }
   }
 }

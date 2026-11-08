@@ -180,6 +180,44 @@ function rememberSites(list) {
   if (dl) dl.innerHTML = [...knownSites].sort().map((s) => `<option value="${esc(s)}"></option>`).join("");
 }
 
+/** תגית תוקף לפי הגדרות ההתראות. kind: "inspection" | "license" */
+function validityBadge(dateStr, kind, { linked = true, short = false } = {}) {
+  if (kind === "inspection" && !linked) return `<span class="badge bg-slate-200 text-slate-600">לא מקושר לתסקיר</span>`;
+  const cfg = api.getAlertSettings()[kind];
+  const v = api.validity(dateStr, cfg.soonDays);
+  const name = kind === "inspection" ? "תסקיר" : "רישיון";
+  const d = api.fmtDateStr(api.normDate(dateStr));
+  const map = {
+    ok: ["bg-emerald-100 text-emerald-800", short ? `${name} ✓` : `${name} עד ${d}`],
+    soon: ["bg-amber-100 text-amber-900", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
+    expired: [cfg.severity === "critical" ? "bg-red-600 text-white" : "bg-amber-400 text-slate-900", `${name} פג ${d}`],
+    unknown: ["bg-slate-200 text-slate-600", `אין תאריך ${name}`],
+  };
+  const [cls, text] = map[v.state];
+  return `<span class="badge ${cls}" title="${esc(d)}">${esc(text)}</span>`;
+}
+/** תגיות תוקף לרישיונות שמוגדרים לבדיקה בהגדרות */
+function licenseBadges(u) {
+  if (!u?.operatorRecordId) return `<span class="badge bg-slate-200 text-slate-600">לא מקושר למנופאי</span>`;
+  const cfg = api.getAlertSettings().license;
+  return cfg.fields.map((f) => {
+    const v = api.validity(u.licenses?.[f], cfg.soonDays);
+    const name = api.LICENSE_FIELDS[f];
+    const d = api.fmtDateStr(u.licenses?.[f]);
+    const map = {
+      ok: ["bg-emerald-100 text-emerald-800", `${name} עד ${d}`],
+      soon: ["bg-amber-100 text-amber-900", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
+      expired: [cfg.severity === "critical" ? "bg-red-600 text-white" : "bg-amber-400 text-slate-900", `${name} פג ${d}`],
+      unknown: ["bg-slate-200 text-slate-600", `אין תאריך ${name}`],
+    };
+    const [cls, text] = map[v.state];
+    return `<span class="badge ${cls}">${esc(text)}</span>`;
+  }).join(" ");
+}
+const licenseBad = (u) => !u.operatorRecordId || api.getAlertSettings().license.fields.some((f) =>
+  api.validity(u.licenses?.[f], api.getAlertSettings().license.soonDays).state !== "ok");
+const isBad = (dateStr, kind) => ["expired", "soon", "unknown"].includes(api.validity(dateStr, api.getAlertSettings()[kind].soonDays).state);
+
 const empty = (text) => `<div class="text-center text-slate-400 py-8 font-semibold">${esc(text)}</div>`;
 const spinner = `<div class="flex justify-center py-10"><div class="w-8 h-8 border-4 border-slate-300 border-t-amber-500 rounded-full animate-spin"></div></div>`;
 
@@ -275,6 +313,8 @@ function renderRequestForm() {
           <input id="f-name" name="name" class="inp" required value="${esc(u.displayName || "")}" autocomplete="name"></div>
         <div><label class="lbl" for="f-phone">טלפון</label>
           <input id="f-phone" name="phone" class="inp" type="tel" inputmode="tel" required placeholder="05X-XXXXXXX" dir="ltr" style="text-align:right" autocomplete="tel"></div>
+        <div><label class="lbl" for="f-idn">תעודת זהות <span class="font-normal text-slate-400">(לקישור לרשומת המנופאי)</span></label>
+          <input id="f-idn" name="idNumber" class="inp" inputmode="numeric" dir="ltr" style="text-align:right" placeholder="9 ספרות"></div>
         <div><span class="lbl">תפקיד מבוקש</span>
           <div class="grid grid-cols-2 gap-3">
             ${[["operator", "מפעיל מנוף", "🕹️"], ["site_manager", "מנהל אתר", "📋"]].map(([v, l, i], idx) => `
@@ -297,7 +337,7 @@ function renderRequestForm() {
     const btn = e.target.querySelector("button[type=submit]");
     btn.disabled = true;
     try {
-      await api.createAccessRequest(u, { name, phone, requestedRole: fd.get("requestedRole") });
+      await api.createAccessRequest(u, { name, phone, requestedRole: fd.get("requestedRole"), idNumber: String(fd.get("idNumber") || "").replace(/\D/g, "") });
     } catch (err) { toast(errMsg(err), "error"); btn.disabled = false; }
   };
 }
@@ -393,9 +433,12 @@ function levelField(name, label, key) {
 function mountPreCheck(root, v) {
   Object.assign(v, { mode: "pre", opId: null, selected: null, toggles: {}, submitting: false });
   root.innerHTML = `
-    <div class="mb-4">
-      <h1 class="text-2xl font-black">פתיחת הפעלה</h1>
-      <p class="text-slate-500">אתר: <b>${esc(state.profile.assignedSite)}</b></p>
+    <div class="mb-4 flex items-start justify-between gap-2">
+      <div>
+        <h1 class="text-2xl font-black">פתיחת הפעלה</h1>
+        <p class="text-slate-500">אתר: <b>${esc(state.profile.assignedSite)}</b></p>
+      </div>
+      <div id="lic-badge" class="pt-1"></div>
     </div>
     <form id="pre-form" class="space-y-4" novalidate>
       <section class="card">
@@ -431,12 +474,14 @@ function mountPreCheck(root, v) {
 
   const form = $("#pre-form", root);
   const refresh = () => drawPreIssues(v, form);
+  refresh();
 
   $("#crane-grid", root).addEventListener("click", (e) => {
     const b = e.target.closest("[data-crane]");
     if (!b) return;
     v.selected = b.dataset.crane;
     drawCraneGrid(v);
+    refresh();
   });
   form.addEventListener("click", (e) => {
     const b = e.target.closest(".tgl");
@@ -473,6 +518,7 @@ function drawCraneGrid(v) {
         <button type="button" class="crane-opt" data-crane="${esc(c.id)}" aria-pressed="${c.id === v.selected}">
           <div class="text-xs text-slate-500 font-bold">מנוף</div>
           <div class="text-2xl font-black">${esc(c.craneId)}</div>
+          <div class="mt-1">${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}</div>
         </button>`).join("")
     : `<div class="col-span-2">${empty("אין מנופים פנויים באתר כרגע")}</div>`;
   if (busy.length) {
@@ -483,7 +529,11 @@ function drawCraneGrid(v) {
 
 function collectPreCheck(v, form) {
   const num = (n) => (form.elements[n].value === "" ? null : Number(form.elements[n].value));
+  const crane = v.cranes.find((c) => c.id === v.selected);
   const values = {
+    operatorRecordId: state.profile.operatorRecordId || null,
+    licenses: state.profile.licenses || null,
+    ...(crane ? { equipmentId: crane.equipmentId || null, inspectionUntil: crane.inspectionUntil || null } : {}),
     workLocation: form.elements.workLocation.value.trim(),
     engineHours: num("engineHours"),
     fuelLevel: num("fuelLevel"),
@@ -504,22 +554,36 @@ function drawPreIssues(v, form) {
   const { values } = collectPreCheck(v, form);
   const a = api.analyzePreCheck(values);
   $$("[data-hint]").forEach((el) => { el.textContent = thresholdHint(el.dataset.hint); });
+  const lb = $("#lic-badge");
+  if (lb) lb.innerHTML = `<div class="flex flex-col items-end gap-1">${licenseBadges(state.profile)}</div>`;
   const crit = a.level === "critical";
   $("#pre-issues").innerHTML = a.level ? `
     <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-4">
       <div class="font-extrabold ${crit ? "text-red-800" : "text-amber-900"} mb-2">${crit ? "🚨 נמצאו ליקויים חמורים" : "⚠️ נמצאו ליקויים"} — יופיעו כהתרעה אצל המנהלים</div>
       <div class="flex flex-wrap gap-2">${issueChips(values)}</div>
+      ${a.blockers.length ? `<div class="mt-3 rounded-xl bg-red-600 text-white font-extrabold p-3">⛔ לא ניתן לפתוח הפעלה: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
     </div>` : "";
+  const btn = form.querySelector("button[type=submit]");
+  if (btn && !v.submitting) btn.classList.toggle("opacity-50", a.blockers.length > 0);
 }
 
 async function submitPreCheck(v, form) {
   const { values, missing } = collectPreCheck(v, form);
+  const pre = api.analyzePreCheck(values);
+  if (pre.blockers.length) {
+    toast(`לא ניתן לפתוח הפעלה: ${pre.blockers.join(", ")}`, "error");
+    return;
+  }
   if (missing.length) {
     toast(`יש להשלים: ${missing.join(", ")}`, "error");
     if (missing.includes("בחירת מנוף")) $("#crane-grid").scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
   const a = api.analyzePreCheck(values);
+  if (a.blockers.length) {
+    toast(`לא ניתן לפתוח הפעלה: ${a.blockers.join(", ")}`, "error");
+    return;
+  }
   if (a.level) {
     const ok = await confirmDialog({
       title: a.level === "critical" ? "נמצאו ליקויים חמורים בבדיקת הפתיחה" : "נמצאו ליקויים בבדיקת הפתיחה",
@@ -540,6 +604,7 @@ async function submitPreCheck(v, form) {
       operatorName: state.profile.name,
       site: state.profile.assignedSite,
       preCheck: values,
+      operatorRecordId: state.profile.operatorRecordId || null,
     });
     toast("ההפעלה החלה — עבודה בטוחה!", "success");
   } catch (e) {
@@ -730,6 +795,7 @@ function drawFleet(el, cranes, { showSite = false } = {}) {
         <span class="w-2.5 h-2.5 rounded-full ${CRANE_STATUS[c.currentStatus]?.dot || "bg-slate-300"}"></span>
         <span class="font-extrabold">${esc(c.craneId)}</span>
         ${showSite ? `<span class="text-xs text-slate-400">${esc(c.site)}</span>` : ""}
+        ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
       </div>`).join("") : empty("אין מנופים מוגדרים")}</div>`;
 }
 
@@ -778,9 +844,10 @@ function drawLog(el, ops, { showSite = false } = {}) {
 }
 
 /** בונה לוח בקרה מלא בתוך container. site ריק = כל האתרים */
-function mountDashboard(container, getSite, { notifyScope = "" } = {}) {
+function mountDashboard(container, getSite, { notifyScope = "", getUsers = null } = {}) {
   container.innerHTML = `
     <div id="d-alerts"></div>
+    <div id="d-validity"></div>
     <section class="mb-6">
       <h2 class="sec-title flex items-center gap-2">מנופים בהפעלה כעת <span id="d-active-cnt" class="badge bg-amber-500 text-slate-900"></span></h2>
       <div id="d-active" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
@@ -803,6 +870,7 @@ function mountDashboard(container, getSite, { notifyScope = "" } = {}) {
     $("#d-active-cnt", container).textContent = active.length;
     drawActiveCards($("#d-active", container), active, { showSite });
     drawFleet($("#d-fleet", container), v.cranes.filter(inSite), { showSite });
+    drawValidity($("#d-validity", container), v.cranes.filter(inSite), getUsers ? getUsers().filter((u) => u.status === "approved" && u.role === "operator" && (!site || u.assignedSite === site)) : null);
     drawLog($("#d-log", container), recent, { showSite });
   };
 
@@ -818,7 +886,11 @@ function mountDashboard(container, getSite, { notifyScope = "" } = {}) {
     ready[src] = true;
   };
 
-  track(api.watchCranes(null, (l) => { v.cranes = l; rememberSites(l); draw(); }, onErr));
+  let synced = false;
+  track(api.watchCranes(null, (l) => {
+    v.cranes = l; rememberSites(l); draw();
+    if (!synced) { synced = true; api.syncCraneInspections(l); } // רענון תאריכי תסקיר מאוסף הציוד
+  }, onErr));
   track(api.watchActiveOperations((l) => { scan("active", l); v.active = l; draw(); }, onErr));
   track(api.watchOperationsSince(HISTORY_HOURS, (l) => { scan("recent", l); v.recent = l; draw(); }, onErr));
   document.addEventListener("alerts-changed", draw);
@@ -838,6 +910,33 @@ function mountDashboard(container, getSite, { notifyScope = "" } = {}) {
     try { await api.forceCloseOperation(op, state.profile.name); toast("ההפעלה נסגרה", "success"); } catch (err) { onErr(err); }
   });
   return { redraw: draw };
+}
+
+/** תוקף תסקירים (מנופים) ורישיונות (מפעילים — רק כשיש רשימת משתמשים) */
+function drawValidity(el, cranes, operators) {
+  const badCranes = cranes.filter((c) => !c.equipmentId || isBad(c.inspectionUntil, "inspection"));
+  const badOps = (operators || []).filter(licenseBad);
+  if (!badCranes.length && !badOps.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <section class="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 mb-6">
+      <h2 class="text-lg font-black text-amber-900 mb-3">📄 תוקף תסקירים ורישיונות</h2>
+      <div class="grid gap-4 ${operators ? "md:grid-cols-2" : ""}">
+        ${badCranes.length ? `<div>
+          <div class="font-bold text-slate-700 mb-2">מנופים (${badCranes.length})</div>
+          <div class="space-y-2">${badCranes.map((c) => `
+            <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+              <span><b>מנוף ${esc(c.craneId)}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
+              ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
+            </div>`).join("")}</div></div>` : ""}
+        ${badOps.length ? `<div>
+          <div class="font-bold text-slate-700 mb-2">מנופאים (${badOps.length})</div>
+          <div class="space-y-2">${badOps.map((u) => `
+            <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+              <span><b>${esc(u.name)}</b> <span class="text-xs text-slate-500">${esc(u.assignedSite)}</span></span>
+              <span class="flex flex-wrap gap-1">${licenseBadges(u)}</span>
+            </div>`).join("")}</div></div>` : ""}
+      </div>
+    </section>`;
 }
 
 // =====================================================================
@@ -876,7 +975,9 @@ function renderAdmin() {
     </section>
     <section data-panel="users" hidden></section>
     <section data-panel="cranes" hidden>
-      <form id="crane-add" class="card mb-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto] items-end">
+      <form id="crane-add" class="card mb-5 grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr_auto] items-end">
+        <div><label class="lbl" for="ca-eq">רשומת ציוד / תסקיר (צ')</label>
+          <select id="ca-eq" class="inp" data-eq-select><option value="">טוען רשימת ציוד…</option></select></div>
         <div><label class="lbl" for="ca-id">מזהה / מספר מנוף</label><input id="ca-id" class="inp" required placeholder="לדוגמה: 14"></div>
         <div><label class="lbl" for="ca-site">אתר / רציף</label><input id="ca-site" class="inp" required list="sites-list" placeholder="שם האתר"></div>
         <button class="btn btn-primary h-[52px]">+ הוסף מנוף</button>
@@ -899,7 +1000,7 @@ function renderAdmin() {
 
   // --- תמונת מצב
   const siteSel = $("#ov-site");
-  const dash = mountDashboard($("#ov-dash"), () => siteSel.value);
+  const dash = mountDashboard($("#ov-dash"), () => siteSel.value, { getUsers: () => v.users });
   siteSel.onchange = () => dash.redraw();
   const refreshSiteSelect = () => {
     const cur = siteSel.value;
@@ -908,6 +1009,16 @@ function renderAdmin() {
 
   // --- משתמשים
   const usersPanel = $('[data-panel="users"]');
+
+  // --- מנופאים ואתרים מהמערכת הקיימת (טעינה חד-פעמית)
+  v.operators = null;
+  Promise.all([api.listOperators(), api.listSites().catch(() => [])]).then(([ops, sites]) => {
+    v.operators = ops;
+    rememberSites(sites.map((x) => ({ site: x.name })));
+    refreshSiteSelect();
+    drawUsersPanel(usersPanel, v);
+    api.syncUserLicenses(v.users, ops);
+  }).catch((err) => { v.operators = []; onErr(err); });
   track(api.watchUsers((list) => {
     v.users = list;
     rememberSites(list.map((u) => ({ site: u.assignedSite })));
@@ -920,24 +1031,51 @@ function renderAdmin() {
       </button>` : "";
     $("#go-pending")?.addEventListener("click", () => setTab("users"));
     drawUsersPanel(usersPanel, v);
+    dash.redraw();
   }, onErr));
   usersPanel.addEventListener("click", (e) => handleUserAction(e, v));
 
   // --- מנופים
+  v.equipment = null; // נטען פעם אחת (הרשומות כוללות קבצי PDF — לא מאזינים בזמן אמת)
+  const eqOptions = (selected = "") => !v.equipment
+    ? `<option value="">טוען רשימת ציוד…</option>`
+    : `<option value="">— ללא קישור —</option>${v.equipment.map((e) => {
+        const used = v.cranes.find((c) => c.equipmentId === e.id);
+        return `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(api.equipmentLabel(e))} · תסקיר עד ${api.fmtDateStr(e.nextInspectionDate)}${used && e.id !== selected ? ` (מקושר למנוף ${esc(used.craneId)})` : ""}</option>`;
+      }).join("")}`;
+  const drawCranes = () => {
+    drawCraneList($("#crane-list"), v.cranes, eqOptions);
+    $("#ca-eq").innerHTML = eqOptions($("#ca-eq").value);
+  };
+  const loadEquipment = async () => {
+    try { v.equipment = await api.listEquipment(); } catch (err) { v.equipment = []; onErr(err); }
+    drawCranes();
+  };
+  let eqLoading = false;
+  $('[data-tab="cranes"]').addEventListener("click", () => { if (!eqLoading) { eqLoading = true; loadEquipment(); } });
   track(api.watchCranes(null, (list) => {
     v.cranes = list;
     rememberSites(list);
     refreshSiteSelect();
-    drawCraneList($("#crane-list"), list);
+    drawCranes();
   }, onErr));
+  $("#ca-eq").onchange = () => {
+    const e = v.equipment?.find((x) => x.id === $("#ca-eq").value);
+    if (e && !$("#ca-id").value) $("#ca-id").value = e.tz;
+  };
   $("#crane-add").onsubmit = async (e) => {
     e.preventDefault();
     const id = $("#ca-id").value.trim();
     const site = $("#ca-site").value.trim();
     if (!id || !site) return toast("יש למלא מזהה ואתר", "error");
-    try { await api.addCrane({ craneId: id, site }); toast(`מנוף ${id} נוסף`, "success"); $("#ca-id").value = ""; } catch (err) { onErr(err); }
+    const equipment = v.equipment?.find((x) => x.id === $("#ca-eq").value) || null;
+    try {
+      await api.addCrane({ craneId: id, site, equipment });
+      toast(`מנוף ${id} נוסף`, "success");
+      $("#ca-id").value = ""; $("#ca-eq").value = "";
+    } catch (err) { onErr(err); }
   };
-  $("#crane-list").addEventListener("click", handleCraneAction);
+  $("#crane-list").addEventListener("click", (e) => handleCraneAction(e, v));
 
   // --- היסטוריה
   mountHistory($('[data-panel="history"]'));
@@ -950,6 +1088,16 @@ function renderAdmin() {
 function roleSelect(cur, name = "role") {
   return `<select class="inp-sm" name="${name}">${["operator", "site_manager", "admin"].map((r) =>
     `<option value="${r}" ${r === cur ? "selected" : ""}>${ROLE_LABELS[r]}</option>`).join("")}</select>`;
+}
+
+function matchOperator(v, u) {
+  const id = String(u.idNumber || "").replace(/^0+/, "");
+  return id && v.operators ? v.operators.find((o) => o.idNumber.replace(/^0+/, "") === id) : null;
+}
+function operatorOptions(v, selected) {
+  if (!v.operators) return `<option value="${esc(selected)}">טוען מנופאים…</option>`;
+  return `<option value="">— ללא קישור —</option>${v.operators.map((o) =>
+    `<option value="${esc(o.id)}" ${o.id === selected ? "selected" : ""}>${esc(o.name)}${o.idNumber ? ` · ${esc(o.idNumber)}` : ""}</option>`).join("")}`;
 }
 
 function drawUsersPanel(panel, v) {
@@ -969,6 +1117,9 @@ function drawUsersPanel(panel, v) {
           <div class="grid grid-cols-2 gap-2 mt-3">
             <div><label class="lbl">תפקיד</label>${roleSelect(u.requestedRole || "operator")}</div>
             <div><label class="lbl">אתר / רציף</label><input class="inp-sm" name="site" list="sites-list" placeholder="שם אתר"></div>
+            <div class="col-span-2"><label class="lbl">רשומת מנופאי (רישיונות)</label>
+              <select class="inp-sm" name="operator">${operatorOptions(v, u.operatorRecordId || matchOperator(v, u)?.id || "")}</select>
+              ${u.idNumber && matchOperator(v, u) ? `<div class="text-xs text-emerald-700 mt-1">✓ זוהה לפי ת"ז ${esc(u.idNumber)}</div>` : u.idNumber ? `<div class="text-xs text-slate-500 mt-1">ת"ז ${esc(u.idNumber)} — לא נמצאה רשומה תואמת</div>` : ""}</div>
           </div>
           <div class="flex gap-2 mt-3">
             <button class="btn btn-success btn-sm flex-1" data-act="approve">✓ אשר</button>
@@ -979,14 +1130,16 @@ function drawUsersPanel(panel, v) {
     <section>
       <h2 class="sec-title">משתמשים קיימים (${others.length})</h2>
       <div class="card !p-0 overflow-x-auto">
-        <table class="w-full min-w-[760px]">
-          <thead><tr><th class="th">שם</th><th class="th">טלפון</th><th class="th">תפקיד</th><th class="th">אתר</th><th class="th">סטטוס</th><th class="th"></th></tr></thead>
+        <table class="w-full min-w-[900px]">
+          <thead><tr><th class="th">שם</th><th class="th">טלפון</th><th class="th">תפקיד</th><th class="th">אתר</th><th class="th">מנופאי / רישיון</th><th class="th">סטטוס</th><th class="th"></th></tr></thead>
           <tbody>${others.map((u) => `
             <tr data-uid="${esc(u.id)}">
               <td class="td"><div class="font-bold">${esc(u.name)}${u.id === me ? ` <span class="badge bg-slate-200">אני</span>` : ""}</div><div class="text-xs text-slate-500">${esc(u.email)}</div></td>
               <td class="td" dir="ltr" style="text-align:right">${esc(u.phone)}</td>
               <td class="td">${roleSelect(u.role)}</td>
               <td class="td"><input class="inp-sm" name="site" list="sites-list" value="${esc(u.assignedSite)}" placeholder="כל האתרים"></td>
+              <td class="td"><select class="inp-sm" name="operator">${operatorOptions(v, u.operatorRecordId || "")}</select>
+                ${u.role === "operator" ? `<div class="mt-1 flex flex-wrap gap-1">${licenseBadges(u)}</div>` : ""}</td>
               <td class="td"><span class="badge ${USER_STATUS[u.status]?.cls || ""}">${USER_STATUS[u.status]?.label || esc(u.status)}</span></td>
               <td class="td whitespace-nowrap">
                 <button class="btn btn-dark btn-sm" data-act="save">שמור</button>
@@ -994,7 +1147,7 @@ function drawUsersPanel(panel, v) {
                   ? `<button class="btn btn-ghost btn-sm text-red-700" data-act="block">השבת</button>`
                   : `<button class="btn btn-ghost btn-sm text-emerald-700" data-act="unblock">הפעל</button>`}
               </td>
-            </tr>`).join("") || `<tr><td class="td" colspan="6">${empty("אין משתמשים")}</td></tr>`}
+            </tr>`).join("") || `<tr><td class="td" colspan="7">${empty("אין משתמשים")}</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1010,11 +1163,15 @@ async function handleUserAction(e, v) {
   const user = v.users.find((u) => u.id === uid);
   const role = $("[name=role]", row)?.value;
   const site = $("[name=site]", row)?.value.trim() ?? "";
+  const opSel = $("[name=operator]", row);
+  const operator = v.operators?.find((o) => o.id === opSel?.value) || null;
+  const operatorChanged = !!v.operators && (opSel?.value || "") !== (user.operatorRecordId || "");
   const act = b.dataset.act;
   try {
     if ((act === "approve" || act === "save") && role === "operator" && !site) return toast("יש לשייך מפעיל לאתר", "error");
     if (act === "approve") {
-      await api.approveUser(uid, { role, assignedSite: site }, state.profile.name);
+      if (role === "operator" && !operator && !(await confirmDialog({ title: "מפעיל ללא רשומת מנופאי", html: "לא נבחרה רשומת מנופאי, ולכן לא ניתן יהיה לבדוק את תוקף הרישיון שלו. לאשר בכל זאת?", confirmText: "אשר בכל זאת" }))) return;
+      await api.approveUser(uid, { role, assignedSite: site, operator }, state.profile.name);
       toast(`${user.name} אושר כ${ROLE_LABELS[role]}`, "success");
     } else if (act === "reject") {
       if (!(await confirmDialog({ title: "דחיית בקשה", html: `לדחות את הבקשה של <b>${esc(user.name)}</b>?`, confirmText: "דחה", danger: true }))) return;
@@ -1024,7 +1181,7 @@ async function handleUserAction(e, v) {
       if (uid === state.user.uid && role !== "admin") {
         if (!(await confirmDialog({ title: "הסרת הרשאת מנהל מערך", html: "אתה עומד להסיר מעצמך הרשאות מנהל מערך. להמשיך?", danger: true }))) return;
       }
-      await api.updateUser(uid, { role, assignedSite: site });
+      await api.updateUser(uid, { role, assignedSite: site, ...(operatorChanged ? api.operatorLinkFields(operator) : {}) });
       toast("נשמר", "success");
     } else if (act === "block") {
       if (!(await confirmDialog({ title: "השבתת משתמש", html: `<b>${esc(user.name)}</b> ייחסם מגישה למערכת.`, confirmText: "השבת", danger: true }))) return;
@@ -1036,7 +1193,7 @@ async function handleUserAction(e, v) {
 }
 
 // ----- ניהול מנופים -----
-function drawCraneList(el, cranes) {
+function drawCraneList(el, cranes, eqOptions) {
   if (!cranes.length) { el.innerHTML = `<div class="card">${empty("עדיין לא הוגדרו מנופים")}</div>`; return; }
   const bySite = {};
   cranes.forEach((c) => { (bySite[c.site || "ללא אתר"] ||= []).push(c); });
@@ -1052,6 +1209,11 @@ function drawCraneList(el, cranes) {
               <div class="text-xl font-black">${esc(c.craneId)}</div>
               <span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label || esc(c.currentStatus)}</span>
             </div>
+            <div class="mb-2 flex flex-wrap items-center gap-1.5">
+              ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
+              ${c.equipmentLabel ? `<span class="text-xs text-slate-500">${esc(c.equipmentLabel)}</span>` : ""}
+            </div>
+            <select class="inp-sm mb-2" name="equipment" ${inUse ? "disabled" : ""} aria-label="רשומת ציוד">${eqOptions(c.equipmentId || "")}</select>
             <div class="grid grid-cols-2 gap-2">
               <input class="inp-sm" name="site" list="sites-list" value="${esc(c.site)}" ${inUse ? "disabled" : ""} aria-label="אתר">
               <select class="inp-sm" name="status" ${inUse ? "disabled" : ""} aria-label="סטטוס">
@@ -1069,7 +1231,7 @@ function drawCraneList(el, cranes) {
     </section>`).join("");
 }
 
-async function handleCraneAction(e) {
+async function handleCraneAction(e, v) {
   const b = e.target.closest("[data-cact]");
   if (!b) return;
   const card = b.closest("[data-crane-id]");
@@ -1079,6 +1241,11 @@ async function handleCraneAction(e) {
       const site = $("[name=site]", card).value.trim();
       if (!site) return toast("יש להזין אתר", "error");
       await api.updateCrane(id, { site, currentStatus: $("[name=status]", card).value });
+      const crane = v.cranes.find((c) => c.id === id);
+      const eqId = $("[name=equipment]", card).value;
+      if (v.equipment && eqId !== (crane?.equipmentId || "")) {
+        await api.linkCraneEquipment(id, v.equipment.find((x) => x.id === eqId) || null);
+      }
       toast(`מנוף ${id} עודכן`, "success");
     } else if (b.dataset.cact === "delete") {
       if (!(await confirmDialog({ title: `מחיקת מנוף ${id}`, html: "המנוף יוסר מהמערכת. היסטוריית ההפעלות שלו תישמר.", confirmText: "מחק", danger: true }))) return;
@@ -1134,13 +1301,14 @@ function exportCsv(ops) {
   const yn = (b) => (b === true ? "תקין" : b === false ? "לא תקין" : "");
   const vy = (b) => (b ? "כן" : "לא");
   const head = ["מנוף", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
-    "שמן", "מים", "רצועות", "שקלים", "חתולים", "התראות", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
+    "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
     return [o.craneId, o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
       opDuration(o) || "", o.status === "active" ? "פעיל" : "הושלם", pc.engineHours, pc.fuelLevel, pc.ureaLevel,
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
+      api.fmtDateStr(pc.inspectionUntil), pc.licenses ? api.fmtDateStr(pc.licenses.craneLicenseExpiry) : "",
       (({ critical, warning }) => [...critical.map((x) => `חמורה: ${x}`), ...warning.map((x) => `ראשונית: ${x}`)].join("; "))(api.analyzePreCheck(pc)),
       ...(o.postCheck ? POST_ITEMS.map(([k]) => vy(po[k])) : ["", "", "", "", ""]), po.notes || ""];
   });
@@ -1237,6 +1405,28 @@ function mountAlertSettings(panel) {
           <p class="text-xs text-slate-500 mb-2">איזו התראה נוצרת כשהמפעיל מסמן פריט כלא תקין</p>
           <div id="as-checks"></div>
         </div>
+        <div class="pt-5 mt-4 border-t border-slate-200">
+          <div class="font-extrabold text-lg mb-1">📄 תוקף תסקיר ורישיון</div>
+          <p class="text-xs text-slate-500 mb-2">נבדק בכל פתיחת הפעלה מול המערכת הקיימת: תסקיר (המוקדם מבין nextCheck ו-btNext) מרשומת הציוד, ורישיונות מרשומת המנופאי.</p>
+          ${[["inspection", "תסקיר מנוף"], ["license", "רישיון מנופאי"]].map(([k, l]) => `
+            <div class="py-3 border-b border-slate-100 last:border-0" data-valid="${k}">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="font-bold">${l} — פג תוקף</span>
+                <div class="seg" data-vsev="${k}">
+                  ${SEV_OPTS.filter(([x]) => x !== "off").map(([x, t]) => `<button type="button" class="seg-btn" data-sev="${x}">${t}</button>`).join("")}
+                </div>
+              </div>
+              ${k === "license" ? `<div class="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm">
+                <span class="text-slate-500 font-bold">רישיונות לבדיקה:</span>
+                ${Object.entries(api.LICENSE_FIELDS).map(([f, l]) => `<label class="flex items-center gap-1.5 font-bold"><input type="checkbox" name="lic.${f}" class="w-4 h-4 accent-emerald-600"> ${l}</label>`).join("")}
+              </div>` : ""}
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mt-2 text-sm">
+                <label class="flex items-center gap-2 font-bold text-red-700"><input type="checkbox" name="${k}.block" class="w-5 h-5 accent-red-600"> חסום פתיחת הפעלה</label>
+                <label class="flex items-center gap-2 font-bold text-slate-600">התראה ראשונית
+                  <input type="number" name="${k}.soonDays" min="0" max="365" class="inp-sm !w-20 text-center"> ימים לפני</label>
+              </div>
+            </div>`).join("")}
+        </div>
         <div class="flex gap-2 mt-5">
           <button class="btn btn-primary flex-1">שמור מדדים</button>
           <button type="button" id="as-reset" class="btn btn-ghost">ברירת מחדל</button>
@@ -1282,6 +1472,10 @@ function mountAlertSettings(panel) {
   // ---- מדדי התראה
   const as = $("#as-form", panel);
   let checks = { ...api.getAlertSettings().checks };
+  const vsev = { inspection: api.getAlertSettings().inspection.severity, license: api.getAlertSettings().license.severity };
+  const drawVsev = () => $$("[data-vsev]", as).forEach((g) => {
+    $$(".seg-btn", g).forEach((b) => b.setAttribute("aria-pressed", String(vsev[g.dataset.vsev] === b.dataset.sev)));
+  });
   let dirty = false;
 
   const drawChecks = () => {
@@ -1313,7 +1507,14 @@ function mountAlertSettings(panel) {
       as.elements[`${k}.crit`].value = cfg[k].crit;
     });
     checks = { ...cfg.checks };
+    ["inspection", "license"].forEach((k) => {
+      vsev[k] = cfg[k].severity;
+      as.elements[`${k}.block`].checked = !!cfg[k].block;
+      as.elements[`${k}.soonDays`].value = cfg[k].soonDays;
+    });
+    Object.keys(api.LICENSE_FIELDS).forEach((f) => { as.elements[`lic.${f}`].checked = cfg.license.fields.includes(f); });
     drawChecks();
+    drawVsev();
     drawBars();
   };
   fill(api.getAlertSettings());
@@ -1322,6 +1523,8 @@ function mountAlertSettings(panel) {
   as.addEventListener("click", (e) => {
     const b = e.target.closest(".seg-btn");
     if (!b) return;
+    const vg = b.closest("[data-vsev]");
+    if (vg) { vsev[vg.dataset.vsev] = b.dataset.sev; dirty = true; drawVsev(); return; }
     checks[b.closest("[data-check]").dataset.check] = b.dataset.sev;
     dirty = true;
     drawChecks();
@@ -1351,6 +1554,12 @@ function mountAlertSettings(panel) {
       }
       data[k] = { enabled, warn, crit };
     }
+    for (const k of ["inspection", "license"]) {
+      const soonDays = Number(as.elements[`${k}.soonDays`].value);
+      if (!Number.isInteger(soonDays) || soonDays < 0 || soonDays > 365) return toast("ימי התראה מוקדמת: מספר שלם בין 0 ל-365", "error");
+      data[k] = { severity: vsev[k], block: as.elements[`${k}.block`].checked, soonDays };
+    }
+    data.license.fields = Object.keys(api.LICENSE_FIELDS).filter((f) => as.elements[`lic.${f}`].checked);
     try {
       await api.saveAlertSettings(data, state.profile.name);
       dirty = false;

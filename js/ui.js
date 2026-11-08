@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js";
-import * as api from "./firestore.js";
-import * as push from "./push.js";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL } from "./config.js";
+import { login, logout, onAuth } from "./auth.js?v=202611082246";
+import * as api from "./firestore.js?v=202611082246";
+import * as push from "./push.js?v=202611082246";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082246";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -291,7 +291,8 @@ function shell(inner, { wide = true } = {}) {
       <span class="flex-1">👁️ מצב תצוגה: ${esc(state.viewAs.label)}. פעולות לא נשמרות.</span>
       <button id="btn-viewas-exit" class="btn btn-sm bg-white text-indigo-700">יציאה</button></div></div>` : ""}
     ${state.profile?.status === "approved" ? installBanner() : ""}
-    <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto p-4 pb-28">${inner}</main>
+    <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto p-4 pb-28">${inner}
+      <div class="text-center text-[10px] text-slate-300 mt-8">גרסה ${APP_VERSION}</div></main>
     <datalist id="sites-list"></datalist>`;
   $("#btn-logout").onclick = () => logout();
   $("#btn-viewas") && ($("#btn-viewas").onclick = openViewAs);
@@ -1204,9 +1205,12 @@ function renderAdmin() {
   }, onErr));
   $("#ca-eq").onchange = () => {
     const e = v.equipment?.find((x) => x.id === $("#ca-eq").value);
-    if (e && !$("#ca-id").value) $("#ca-id").value = e.tz;
-    const siteName = e && v.sites?.find((x) => String(x.id) === String(e.siteId))?.name;
-    if (siteName && !$("#ca-site").value) $("#ca-site").value = siteName;
+    if (!e) return;
+    $("#ca-id").value = e.tz;
+    const sid = String(e.siteId ?? "").trim();
+    const site = sid && v.sites?.find((x) => String(x.id) === sid || String(x.fieldId ?? "") === sid || String(parseInt(x.fieldId)) === String(parseInt(sid)));
+    if (site) $("#ca-site").value = site.name;
+    else if (sid) toast(`לכלי מוגדר אתר (${sid}) שלא נמצא ברשימת האתרים. יש להזין אתר ידנית`, "error");
   };
   $("#crane-add").onsubmit = async (e) => {
     e.preventDefault();

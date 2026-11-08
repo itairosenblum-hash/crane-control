@@ -35,3 +35,6 @@ export const DEFAULTS = {
 
 // חלון היומן בלוח הבקרה של מנהל האתר (בשעות)
 export const HISTORY_HOURS = 72;
+
+// גרסת האתר (מתעדכנת אוטומטית ע"י scripts/bump-version.py)
+export const APP_VERSION = "202611082246";

@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js";
+import { db } from "./auth.js?v=202611082246";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js";
+import { DEFAULTS } from "./config.js?v=202611082246";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -97,7 +97,7 @@ export function saveAlertSettings(data, updatedBy) {
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js");
+  const { app } = await import("./auth.js?v=202611082246");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -309,7 +309,8 @@ export async function listOperators() {
 }
 export async function listSites() {
   const s = await getDocs(collection(db, "sites"));
-  return s.docs.map((d) => ({ id: d.id, name: d.data().name || d.data().title || d.data().siteName || d.id }));
+  // מזהה האתר במערכת הציוד יכול להיות שם המסמך או השדה id שבתוכו
+  return s.docs.map((d) => ({ id: d.id, fieldId: d.data().id ?? null, name: String(d.data().name || d.data().title || d.data().siteName || d.id).trim() }));
 }
 /** מרענן את עותק תאריכי הרישיון על המשתמשים מתוך רשומות המנופאים */
 export async function syncUserLicenses(users, operators) {

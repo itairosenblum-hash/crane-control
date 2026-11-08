@@ -2,9 +2,8 @@
 // יש להחליף את הערכים באלה של פרויקט ה-Firebase שלך:
 // Firebase Console → Project settings → General → Your apps → Web app → SDK setup and configuration
 // פרויקט: crane (gen-lang-client-0743333908)
-// חסר רק apiKey — Project settings → General → Your apps → Web API Key / SDK config.
 export const firebaseConfig = {
-  apiKey: "PASTE_API_KEY_HERE",
+  apiKey: "AIzaSyCJWIyYuAHjSsy1a7EcfBSe_YXTs9x_xkc",
   authDomain: "gen-lang-client-0743333908.firebaseapp.com",
   projectId: "gen-lang-client-0743333908",
   storageBucket: "gen-lang-client-0743333908.firebasestorage.app",

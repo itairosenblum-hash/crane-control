@@ -90,7 +90,7 @@ exports.notifyOnOperation = onDocumentCreated("operations/{opId}", async (event)
   const users = await recipients({ level, site: op.site });
   if (!users.length) return;
   const sent = await sendTo(users, {
-    title: `${level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — מנוף ${op.craneId}`,
+    title: `${level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — ${op.craneKind || "מנוף"} ${op.craneId}`,
     body: `${op.operatorName} · ${op.site}\n${(pc.issues || []).join(" · ")}`,
     tag: event.params.opId,
     level,
@@ -118,8 +118,9 @@ exports.dailyExpiryDigest = onSchedule({ schedule: "0 7 * * *", timeZone: "Asia/
     if (date !== (cr.inspectionUntil || null)) await c.ref.update({ inspectionUntil: date, inspectionSyncedAt: admin.firestore.FieldValue.serverTimestamp() });
     const d = daysUntil(date, today);
     if (d == null) continue;
-    if (d < 0) expired.push(`תסקיר מנוף ${cr.craneId} (${fmt(date)})`);
-    else if (d <= ins.soonDays) soon.push(`תסקיר מנוף ${cr.craneId} — עוד ${d} ימים`);
+    const unit = `${/מלגז|forklift/i.test(cr.equipmentType || "") ? "מלגזה" : "מנוף"} ${cr.craneId}`;
+    if (d < 0) expired.push(`תסקיר ${unit} (${fmt(date)})`);
+    else if (d <= ins.soonDays) soon.push(`תסקיר ${unit} — עוד ${d} ימים`);
   }
 
   // רישיונות מנופאים (רק משתמשים מאושרים שמקושרים לרשומת מנופאי)

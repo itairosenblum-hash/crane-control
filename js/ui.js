@@ -175,7 +175,7 @@ function notifyOp(op) {
   if (!a.level) return;
   deliverAlert({
     level: a.level,
-    title: `${a.level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — מנוף ${op.craneId}`,
+    title: `${a.level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — ${api.unitName(op)}`,
     body: `${op.operatorName} · ${op.site}\n${[...a.critical, ...a.warning].join(" · ")}`,
     tag: op.id,
   });
@@ -296,7 +296,7 @@ function renderLogin() {
       <div class="w-full max-w-sm text-center text-white">
         <div class="w-20 h-20 mx-auto rounded-3xl bg-amber-500 flex items-center justify-center text-5xl shadow-xl mb-6">🏗️</div>
         <h1 class="text-3xl font-black">בקרת מנופים</h1>
-        <p class="text-slate-300 mt-2 mb-10">שליטה ובקרה על הפעלת צמ"ה ברציפים</p>
+        <p class="text-slate-300 mt-2 mb-10">שליטה ובקרה על הפעלת מנופים ומלגזות</p>
         <button id="btn-login" class="btn w-full bg-white text-slate-900 text-lg py-4 rounded-2xl shadow-xl hover:bg-slate-100">
           ${GOOGLE_ICON}<span>התחברות עם Google</span>
         </button>
@@ -454,7 +454,7 @@ function mountPreCheck(root, v) {
     </div>
     <form id="pre-form" class="space-y-4" novalidate>
       <section class="card">
-        <h2 class="sec-title">1 · בחירת מנוף פנוי</h2>
+        <h2 class="sec-title">1 · בחירת כלי פנוי (מנוף / מלגזה)</h2>
         <div id="crane-grid" class="grid grid-cols-2 gap-3"></div>
       </section>
       <section class="card space-y-4">
@@ -521,18 +521,18 @@ function drawCraneGrid(v) {
   if (!grid) return;
   const avail = v.cranes.filter((c) => c.currentStatus === "available");
   if (v.selected && !avail.some((c) => c.id === v.selected)) {
-    if (!v.submitting) toast(`מנוף ${v.selected} אינו פנוי עוד — בחר מנוף אחר`, "error");
+    if (!v.submitting) toast(`${v.selected} אינו פנוי עוד — בחר כלי אחר`, "error");
     v.selected = null;
   }
   const busy = v.cranes.filter((c) => c.currentStatus !== "available");
   grid.innerHTML = avail.length
     ? avail.map((c) => `
         <button type="button" class="crane-opt" data-crane="${esc(c.id)}" aria-pressed="${c.id === v.selected}">
-          <div class="text-xs text-slate-500 font-bold">מנוף</div>
+          <div class="text-xs text-slate-500 font-bold">${api.kindOf(c.equipmentType)}</div>
           <div class="text-2xl font-black">${esc(c.craneId)}</div>
           <div class="mt-1">${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}</div>
         </button>`).join("")
-    : `<div class="col-span-2">${empty("אין מנופים פנויים באתר כרגע")}</div>`;
+    : `<div class="col-span-2">${empty("אין כלים פנויים באתר כרגע")}</div>`;
   if (busy.length) {
     grid.insertAdjacentHTML("beforeend", `<div class="col-span-2 flex flex-wrap gap-2 pt-1 text-xs">${busy.map((c) =>
       `<span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${esc(c.craneId)} · ${CRANE_STATUS[c.currentStatus]?.label}</span>`).join("")}</div>`);
@@ -638,7 +638,7 @@ function mountActive(root, v) {
       <div class="inline-flex items-center gap-2 badge bg-emerald-500/20 text-emerald-300 text-sm mb-3">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> הפעלה פעילה
       </div>
-      <div class="text-slate-400 text-sm font-bold">מנוף</div>
+      <div class="text-slate-400 text-sm font-bold">${esc(op.craneKind || "מנוף")}</div>
       <div class="text-5xl font-black mb-4">${esc(op.craneId)}</div>
       <div class="text-slate-400 text-sm font-bold">זמן ריצה</div>
       ${since(op.startTime, "block text-6xl font-black text-amber-400 my-1")}
@@ -764,7 +764,7 @@ function drawAlerts(el, ops) {
         ${list.map((op) => `
           <div class="bg-white rounded-xl border border-red-200 border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : "border-r-amber-400"} p-3">
             <div class="flex items-center justify-between gap-2 mb-1">
-              <div class="font-black text-lg">מנוף ${esc(op.craneId)}</div><div class="flex gap-1">${LEVEL_BADGE[opLevel(op)]}${opStatusBadge(op)}</div>
+              <div class="font-black text-lg">${esc(api.unitName(op))}</div><div class="flex gap-1">${LEVEL_BADGE[opLevel(op)]}${opStatusBadge(op)}</div>
             </div>
             <div class="text-sm text-slate-600 mb-2">${esc(op.operatorName)} · ${esc(op.site)} · ${esc(op.preCheck?.workLocation)} · ${fmtDT(op.startTime)}</div>
             <div class="flex flex-wrap gap-1.5">${issueChips(op.preCheck)}</div>
@@ -779,7 +779,7 @@ function drawActiveCards(el, ops, { showSite = false } = {}) {
     <div class="card border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : opLevel(op) === "warning" ? "border-r-amber-400" : "border-r-slate-300"}">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <div class="text-xs text-slate-500 font-bold">מנוף${showSite ? ` · ${esc(op.site)}` : ""}</div>
+          <div class="text-xs text-slate-500 font-bold">${esc(op.craneKind || "מנוף")}${showSite ? ` · ${esc(op.site)}` : ""}</div>
           <div class="text-2xl font-black">${esc(op.craneId)}</div>
         </div>
         <div class="text-left">
@@ -819,7 +819,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
       ${ops.map((op) => `
         <div class="card !p-3">
           <div class="flex items-center justify-between gap-2">
-            <div class="font-black text-lg">מנוף ${esc(op.craneId)}</div>${opStatusBadge(op)}
+            <div class="font-black text-lg">${esc(api.unitName(op))}</div>${opStatusBadge(op)}
           </div>
           <div class="text-sm text-slate-600">${esc(op.operatorName)}${showSite ? ` · ${esc(op.site)}` : ""} · ${esc(op.preCheck?.workLocation)}</div>
           <div class="grid grid-cols-3 gap-2 text-sm mt-2">
@@ -835,7 +835,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
     <div class="hidden md:block card !p-0 overflow-x-auto">
       <table class="w-full">
         <thead><tr>
-          <th class="th">מנוף</th>${showSite ? `<th class="th">אתר</th>` : ""}<th class="th">מפעיל</th><th class="th">מיקום</th>
+          <th class="th">כלי</th>${showSite ? `<th class="th">אתר</th>` : ""}<th class="th">מפעיל</th><th class="th">מיקום</th>
           <th class="th">פתיחה</th><th class="th">סגירה</th><th class="th">משך</th><th class="th">ש' מנוע</th>
           <th class="th">סטטוס</th><th class="th">ליקויים</th><th class="th">סגירה / הערות</th>
         </tr></thead>
@@ -914,7 +914,7 @@ function mountDashboard(container, getSite, { notifyScope = "", getUsers = null 
     const op = v.ops.get(b.dataset.force);
     if (!op) return;
     const ok = await confirmDialog({
-      title: `סגירה כפויה — מנוף ${op.craneId}`,
+      title: `סגירה כפויה — ${api.unitName(op)}`,
       html: `<p>ההפעלה של <b>${esc(op.operatorName)}</b> תיסגר ללא בדיקת סגירה של המפעיל, והמנוף ישוחרר.</p>`,
       confirmText: "סגור הפעלה", danger: true,
     });
@@ -937,7 +937,7 @@ function drawValidity(el, cranes, operators) {
           <div class="font-bold text-slate-700 mb-2">מנופים (${badCranes.length})</div>
           <div class="space-y-2">${badCranes.map((c) => `
             <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-              <span><b>מנוף ${esc(c.craneId)}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
+              <span><b>${esc(api.unitName(c))}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
               ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
             </div>`).join("")}</div></div>` : ""}
         ${badOps.length ? `<div>
@@ -974,7 +974,7 @@ function renderAdmin() {
     <nav class="flex gap-1 overflow-x-auto bg-slate-200/70 rounded-2xl p-1 mb-5" role="tablist">
       <button class="tab" data-tab="overview" role="tab">📊 תמונת מצב</button>
       <button class="tab" data-tab="users" role="tab">👥 משתמשים <span id="tab-pending-cnt"></span></button>
-      <button class="tab" data-tab="cranes" role="tab">🏗️ מנופים</button>
+      <button class="tab" data-tab="cranes" role="tab">🏗️ מנופים ומלגזות</button>
       <button class="tab" data-tab="history" role="tab">🗂️ היסטוריה</button>
       <button class="tab" data-tab="alerts" role="tab">🔔 הגדרות התראות</button>
     </nav>
@@ -988,11 +988,11 @@ function renderAdmin() {
     <section data-panel="users" hidden></section>
     <section data-panel="cranes" hidden>
       <form id="crane-add" class="card mb-5 grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr_auto] items-end">
-        <div><label class="lbl" for="ca-eq">רשומת ציוד / תסקיר (צ')</label>
+        <div><label class="lbl" for="ca-eq">כלי מתוך מערכת הציוד (צ')</label>
           <select id="ca-eq" class="inp" data-eq-select><option value="">טוען רשימת ציוד…</option></select></div>
-        <div><label class="lbl" for="ca-id">מזהה / מספר מנוף</label><input id="ca-id" class="inp" required placeholder="לדוגמה: 14"></div>
+        <div><label class="lbl" for="ca-id">מספר כלי (צ')</label><input id="ca-id" class="inp" required placeholder="לדוגמה: 14"></div>
         <div><label class="lbl" for="ca-site">אתר / רציף</label><input id="ca-site" class="inp" required list="sites-list" placeholder="שם האתר"></div>
-        <button class="btn btn-primary h-[52px]">+ הוסף מנוף</button>
+        <button class="btn btn-primary h-[52px]">+ הוסף כלי</button>
       </form>
       <div id="crane-list">${spinner}</div>
     </section>
@@ -1026,6 +1026,7 @@ function renderAdmin() {
   v.operators = null;
   Promise.all([api.listOperators(), api.listSites().catch(() => [])]).then(([ops, sites]) => {
     v.operators = ops;
+    v.sites = sites;
     rememberSites(sites.map((x) => ({ site: x.name })));
     refreshSiteSelect();
     drawUsersPanel(usersPanel, v);
@@ -1051,9 +1052,9 @@ function renderAdmin() {
   v.equipment = null; // נטען פעם אחת (הרשומות כוללות קבצי PDF — לא מאזינים בזמן אמת)
   const eqOptions = (selected = "") => !v.equipment
     ? `<option value="">טוען רשימת ציוד…</option>`
-    : `<option value="">— ללא קישור —</option>${v.equipment.map((e) => {
+    : `<option value="">— ללא קישור —</option>${v.equipment.filter((e) => e.id === selected || api.isRelevantType(e.type)).map((e) => {
         const used = v.cranes.find((c) => c.equipmentId === e.id);
-        return `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(api.equipmentLabel(e))} · תסקיר עד ${api.fmtDateStr(e.nextInspectionDate)}${used && e.id !== selected ? ` (מקושר למנוף ${esc(used.craneId)})` : ""}</option>`;
+        return `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(api.equipmentLabel(e))} · תסקיר עד ${api.fmtDateStr(e.nextInspectionDate)}${used && e.id !== selected ? ` (מקושר ל${esc(api.unitName(used))})` : ""}</option>`;
       }).join("")}`;
   const drawCranes = () => {
     drawCraneList($("#crane-list"), v.cranes, eqOptions);
@@ -1074,6 +1075,8 @@ function renderAdmin() {
   $("#ca-eq").onchange = () => {
     const e = v.equipment?.find((x) => x.id === $("#ca-eq").value);
     if (e && !$("#ca-id").value) $("#ca-id").value = e.tz;
+    const siteName = e && v.sites?.find((x) => String(x.id) === String(e.siteId))?.name;
+    if (siteName && !$("#ca-site").value) $("#ca-site").value = siteName;
   };
   $("#crane-add").onsubmit = async (e) => {
     e.preventDefault();
@@ -1083,7 +1086,7 @@ function renderAdmin() {
     const equipment = v.equipment?.find((x) => x.id === $("#ca-eq").value) || null;
     try {
       await api.addCrane({ craneId: id, site, equipment });
-      toast(`מנוף ${id} נוסף`, "success");
+      toast(`${id} נוסף`, "success");
       $("#ca-id").value = ""; $("#ca-eq").value = "";
     } catch (err) { onErr(err); }
   };
@@ -1261,9 +1264,9 @@ async function handleCraneAction(e, v) {
       if (v.equipment && eqId !== (crane?.equipmentId || "")) {
         await api.linkCraneEquipment(id, v.equipment.find((x) => x.id === eqId) || null);
       }
-      toast(`מנוף ${id} עודכן`, "success");
+      toast(`${id} עודכן`, "success");
     } else if (b.dataset.cact === "delete") {
-      if (!(await confirmDialog({ title: `מחיקת מנוף ${id}`, html: "המנוף יוסר מהמערכת. היסטוריית ההפעלות שלו תישמר.", confirmText: "מחק", danger: true }))) return;
+      if (!(await confirmDialog({ title: `מחיקת ${id}`, html: "הכלי יוסר מהמערכת. היסטוריית ההפעלות שלו תישמר.", confirmText: "מחק", danger: true }))) return;
       await api.deleteCrane(id);
       toast("המנוף נמחק");
     }
@@ -1280,7 +1283,7 @@ function mountHistory(panel) {
       <div><label class="lbl">מתאריך</label><input type="date" name="from" class="inp-sm" value="${iso(weekAgo)}"></div>
       <div><label class="lbl">עד תאריך</label><input type="date" name="to" class="inp-sm" value="${iso(today)}"></div>
       <div><label class="lbl">אתר</label><input name="site" class="inp-sm" list="sites-list" placeholder="הכל"></div>
-      <div><label class="lbl">מנוף</label><input name="crane" class="inp-sm" placeholder="הכל"></div>
+      <div><label class="lbl">כלי (מספר)</label><input name="crane" class="inp-sm" placeholder="הכל"></div>
       <div><label class="lbl">מפעיל</label><input name="operator" class="inp-sm" placeholder="הכל"></div>
       <label class="flex items-center gap-2 font-bold text-sm py-2"><input type="checkbox" name="issues" class="w-5 h-5 accent-red-600"> רק עם ליקויים</label>
       <div class="sm:col-span-3 lg:col-span-6 flex gap-2">
@@ -1315,12 +1318,12 @@ function mountHistory(panel) {
 function exportCsv(ops) {
   const yn = (b) => (b === true ? "תקין" : b === false ? "לא תקין" : "");
   const vy = (b) => (b ? "כן" : "לא");
-  const head = ["מנוף", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
+  const head = ["סוג", "כלי", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
     "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "חונה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
-    return [o.craneId, o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
+    return [o.craneKind || "מנוף", o.craneId, o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
       opDuration(o) || "", o.status === "active" ? "פעיל" : "הושלם", pc.engineHours, pc.fuelLevel, pc.ureaLevel,
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
       api.fmtDateStr(pc.inspectionUntil), pc.licenses ? api.fmtDateStr(pc.licenses.craneLicenseExpiry) : "",
@@ -1447,6 +1450,11 @@ function mountAlertSettings(panel) {
               </div>
             </div>`).join("")}
         </div>
+        <div class="pt-5 mt-4 border-t border-slate-200">
+          <div class="font-extrabold text-lg mb-1">🏗️ סוגי כלים במערכת</div>
+          <p class="text-xs text-slate-500 mb-2">רק כלים מהסוגים המסומנים יופיעו בבחירה מתוך מערכת הציוד. ברירת המחדל: מנופים ומלגזות.</p>
+          <div id="as-types" class="flex flex-wrap gap-x-4 gap-y-2 text-sm">${spinner}</div>
+        </div>
         <div class="flex gap-2 mt-5">
           <button class="btn btn-primary flex-1">שמור מדדים</button>
           <button type="button" id="as-reset" class="btn btn-ghost">ברירת מחדל</button>
@@ -1557,6 +1565,22 @@ function mountAlertSettings(panel) {
   };
   fill(api.getAlertSettings());
 
+  // סוגי ציוד: נטענים מאוסף equipment (רק השדה type)
+  let allTypes = null;
+  const drawTypes = () => {
+    const el = $("#as-types", as);
+    if (!allTypes) return;
+    const sel = api.getAlertSettings().equipmentTypes;
+    el.innerHTML = allTypes.length ? allTypes.map((t) => `
+      <label class="flex items-center gap-1.5 font-bold"><input type="checkbox" name="eqtype" value="${esc(t)}" class="w-4 h-4 accent-emerald-600"
+        ${(sel ? sel.includes(t) : api.defaultRelevant(t)) ? "checked" : ""}> ${esc(t)}</label>`).join("")
+      : `<span class="text-slate-400">לא נמצאו סוגים ברשומות הציוד</span>`;
+  };
+  api.listEquipment().then((list) => {
+    allTypes = [...new Set(list.map((e) => e.type).filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
+    drawTypes();
+  }).catch(() => { $("#as-types", as).textContent = "לא ניתן לטעון את סוגי הציוד"; });
+
   as.addEventListener("input", () => { dirty = true; drawBars(); });
   as.addEventListener("click", (e) => {
     const b = e.target.closest(".seg-btn");
@@ -1571,7 +1595,7 @@ function mountAlertSettings(panel) {
 
   const onAlerts = () => {
     if (!panel.isConnected) return;
-    if (!dirty) fill(api.getAlertSettings());
+    if (!dirty) { fill(api.getAlertSettings()); drawTypes(); }
   };
   document.addEventListener("alerts-changed", onAlerts);
   track(() => document.removeEventListener("alerts-changed", onAlerts));
@@ -1598,6 +1622,7 @@ function mountAlertSettings(panel) {
       data[k] = { severity: vsev[k], block: as.elements[`${k}.block`].checked, soonDays };
     }
     data.license.fields = Object.keys(api.LICENSE_FIELDS).filter((f) => as.elements[`lic.${f}`].checked);
+    if (allTypes) data.equipmentTypes = $$("[name=eqtype]", as).filter((x) => x.checked).map((x) => x.value);
     try {
       await api.saveAlertSettings(data, state.profile.name);
       dirty = false;

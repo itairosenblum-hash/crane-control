@@ -19,7 +19,7 @@
 המערכת רצה על פרויקט ה-Firebase `cranes` (`cranes-a0759`), לצד מערכת הציוד הקיימת.
 - **אוספים של המערכת הזו:** `craneUsers`, `craneSettings`, `cranes`, `operations`.
 - **מהמערכת הקיימת המערכת רק קוראת, ולא כותבת:**
-  - `equipment`: תוקף התסקיר הוא המוקדם מבין `nextCheck` ו-`btNext`. הצ' נלקח מ-`serialNumber`.
+  - `equipment`: רק **מנופים ומלגזות**, לפי השדה `type`. אפשר לשנות את הסוגים בלשונית ההגדרות. תוקף התסקיר הוא המוקדם מבין `nextCheck` ו-`btNext`, הצ' נלקח מ-`serialNumber`, והאתר מתמלא אוטומטית לפי `siteId`.
   - `operators`: תאריכי רישיון: `craneLicenseExpiry`, `militaryLicenseExpiry`, `civilianLicenseExpiry`, `tatash`.
   - `sites`: רשימת האתרים.
 - **האוספים `users` ו-`meta`** שייכים למערכת הקיימת, והמערכת הזו לא נוגעת בהם.

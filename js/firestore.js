@@ -78,6 +78,7 @@ function mergeAlerts(d = {}) {
   ["fuel", "urea", "inspection", "license"].forEach((k) => { if (d[k]) Object.assign(m[k], d[k]); });
   if (!Array.isArray(m.license.fields)) m.license.fields = [...DEFAULT_ALERTS.license.fields];
   m.license.fields = m.license.fields.filter((f) => f in LICENSE_FIELDS);
+  m.equipmentTypes = Array.isArray(d.equipmentTypes) ? d.equipmentTypes.map(String) : null;
   if (d.checks) Object.keys(m.checks).forEach((k) => { if (["off", "warning", "critical"].includes(d.checks[k])) m.checks[k] = d.checks[k]; });
   return m;
 }
@@ -240,6 +241,7 @@ export async function addCrane({ craneId, site, equipment = null }) {
       activeOperationId: null, createdAt: serverTimestamp(),
       equipmentId: equipment?.id || null,
       equipmentLabel: equipment ? equipmentLabel(equipment) : null,
+      equipmentType: equipment?.type || null,
       inspectionUntil: equipment?.nextInspectionDate || null,
     });
   });
@@ -247,6 +249,19 @@ export async function addCrane({ craneId, site, equipment = null }) {
 
 export const updateCrane = (id, data) => updateDoc(doc(db, "cranes", id), { ...data, updatedAt: serverTimestamp() });
 export const deleteCrane = (id) => deleteDoc(doc(db, "cranes", id));
+
+// ---------- סוגי כלים: מנופים ומלגזות ----------
+const RELEVANT_RE = /מנוף|מלגז|crane|forklift/i;
+/** האם סוג הציוד רלוונטי למערכת (לפי בחירת המנהל, או כברירת מחדל — מנופים ומלגזות) */
+export function isRelevantType(type, s = alertSettings) {
+  const t = String(type || "").trim();
+  return s.equipmentTypes ? s.equipmentTypes.includes(t) : RELEVANT_RE.test(t);
+}
+export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
+/** "מלגזה" או "מנוף" לפי סוג הציוד */
+export const kindOf = (type) => (/מלגז|forklift/i.test(String(type || "")) ? "מלגזה" : "מנוף");
+/** שם תצוגה לכלי: "מנוף 7206179" / "מלגזה 8812044" */
+export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${x?.craneId ?? ""}`.trim();
 
 // ---------- ציוד (אוסף equipment של אפליקציית התסקירים) ----------
 const TZ_FIELDS = ["serialNumber"]; // הצ' של המנוף ברשומת הציוד
@@ -263,14 +278,15 @@ function slimEquipment(d) {
   return {
     id: d.id,
     tz: tzField ? String(x[tzField]) : d.id,
-    type: x.equipmentType || "",
+    type: String(x.type || x.equipmentType || "").trim(),
+    siteId: x.siteId ?? null,
     manufacturer: x.manufacturer || "",
     model: x.model || (x.name && x.name !== (tzField ? x[tzField] : "") ? x.name : ""),
     nextInspectionDate: equipmentInspectionDate(x),
     lastInspectionDate: normDate(x.lastCheck ?? x.lastInspectionDate),
   };
 }
-export const equipmentLabel = (e) => [`צ' ${e.tz}`, e.manufacturer, e.model, e.type].filter(Boolean).join(" · ");
+export const equipmentLabel = (e) => [e.type, `צ' ${e.tz}`, e.manufacturer, e.model].filter(Boolean).join(" · ");
 
 export async function listEquipment() {
   const s = await getDocs(collection(db, "equipment"));
@@ -308,9 +324,9 @@ export async function syncUserLicenses(users, operators) {
 
 export function linkCraneEquipment(craneId, eq) {
   return updateDoc(doc(db, "cranes", craneId), eq ? {
-    equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), inspectionUntil: eq.nextInspectionDate || null,
+    equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), equipmentType: eq.type || null, inspectionUntil: eq.nextInspectionDate || null,
     inspectionSyncedAt: serverTimestamp(), updatedAt: serverTimestamp(),
-  } : { equipmentId: null, equipmentLabel: null, inspectionUntil: null, updatedAt: serverTimestamp() });
+  } : { equipmentId: null, equipmentLabel: null, equipmentType: null, inspectionUntil: null, updatedAt: serverTimestamp() });
 }
 
 /** מרענן את תאריך התסקיר השמור על המנופים מתוך אוסף equipment */
@@ -394,6 +410,7 @@ export async function startOperation({ craneId, uid, operatorName, site, preChec
     tx.set(opRef, {
       id: opRef.id,
       craneId,
+      craneKind: kindOf(crane.equipmentType),
       operatorId: uid,
       operatorName,
       site,

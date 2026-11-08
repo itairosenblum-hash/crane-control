@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082246";
+import { db } from "./auth.js?v=202611082250";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082246";
+import { DEFAULTS } from "./config.js?v=202611082250";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -97,7 +97,7 @@ export function saveAlertSettings(data, updatedBy) {
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082246");
+  const { app } = await import("./auth.js?v=202611082250");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -312,6 +312,47 @@ export async function listSites() {
   // מזהה האתר במערכת הציוד יכול להיות שם המסמך או השדה id שבתוכו
   return s.docs.map((d) => ({ id: d.id, fieldId: d.data().id ?? null, name: String(d.data().name || d.data().title || d.data().siteName || d.id).trim() }));
 }
+/** שם האתר לפי מזהה (siteId) — לפי שם המסמך או השדה id שבתוכו */
+export function siteNameFor(siteId, sites = []) {
+  const sid = String(siteId ?? "").trim();
+  if (!sid) return "";
+  const s = sites.find((x) => String(x.id) === sid || String(x.fieldId ?? "") === sid
+    || (!Number.isNaN(parseInt(sid)) && String(parseInt(x.fieldId)) === String(parseInt(sid))));
+  return s ? s.name : "";
+}
+
+/**
+ * מסנכרן כלים ממערכת הציוד: כל מנוף/מלגזה שעוד לא קיים — נוסף; קיים — מתעדכן (אתר, סוג, תסקיר).
+ * מחזיר { added, updated, skipped }.
+ */
+export async function syncCranesFromEquipment(equipment, sites, cranes) {
+  let added = 0, updated = 0, skipped = 0;
+  for (const eq of equipment.filter((e) => isRelevantType(e.type))) {
+    const site = siteNameFor(eq.siteId, sites);
+    const fields = { equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), equipmentType: eq.type || null, inspectionUntil: eq.nextInspectionDate || null };
+    const linked = cranes.find((c) => c.equipmentId === eq.id);
+    try {
+      if (linked) {
+        const patch = {};
+        for (const [k, val] of Object.entries(fields)) if ((linked[k] ?? null) !== val) patch[k] = val;
+        if (site && linked.site !== site && linked.currentStatus !== "in_use") patch.site = site;
+        if (Object.keys(patch).length) { await updateDoc(doc(db, COL.cranes, linked.id), { ...patch, updatedAt: serverTimestamp() }); updated++; }
+        continue;
+      }
+      const id = String(eq.tz || eq.id).trim().replace(/\//g, "-");
+      const existing = cranes.find((c) => c.id === id);
+      if (existing && existing.equipmentId) { skipped++; continue; } // אותו מספר כבר מקושר לרשומה אחרת
+      await setDoc(doc(db, COL.cranes, id), {
+        craneId: id, ...fields,
+        ...(existing ? {} : { site, currentStatus: "available", activeOperationId: null, createdAt: serverTimestamp(), autoImported: true }),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      existing ? updated++ : added++;
+    } catch (e) { console.warn("sync failed", eq.id, e); skipped++; }
+  }
+  return { added, updated, skipped };
+}
+
 /** מרענן את עותק תאריכי הרישיון על המשתמשים מתוך רשומות המנופאים */
 export async function syncUserLicenses(users, operators) {
   const byId = new Map(operators.map((o) => [o.id, o]));

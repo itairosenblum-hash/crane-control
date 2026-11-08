@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082246";
-import * as api from "./firestore.js?v=202611082246";
-import * as push from "./push.js?v=202611082246";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082246";
+import { login, logout, onAuth } from "./auth.js?v=202611082250";
+import * as api from "./firestore.js?v=202611082250";
+import * as push from "./push.js?v=202611082250";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082250";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -917,7 +917,7 @@ function drawActiveCards(el, ops, { showSite = false } = {}) {
       </dl>
       ${hasIssues(op) ? `<div class="flex flex-wrap gap-1.5 mt-3">${issueChips(op.preCheck)}</div>` : ""}
       <button class="btn btn-ghost btn-sm w-full mt-3 text-red-700" data-force="${esc(op.id)}">סגירה כפויה</button>
-    </div>`).join("") : `<div class="sm:col-span-2 lg:col-span-3 card">${empty("אין מנופים בהפעלה כרגע")}</div>`;
+    </div>`).join("") : `<div class="sm:col-span-2 lg:col-span-3 card">${empty("אין כלים בהפעלה כרגע")}</div>`;
 }
 
 function drawFleet(el, cranes, { showSite = false } = {}) {
@@ -930,7 +930,7 @@ function drawFleet(el, cranes, { showSite = false } = {}) {
         <span class="font-extrabold">${esc(c.craneId)}</span>
         ${showSite ? `<span class="text-xs text-slate-400">${esc(c.site)}</span>` : ""}
         ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
-      </div>`).join("") : empty("אין מנופים מוגדרים")}</div>`;
+      </div>`).join("") : empty("אין כלים מוגדרים")}</div>`;
 }
 
 function drawLog(el, ops, { showSite = false } = {}) {
@@ -978,15 +978,15 @@ function drawLog(el, ops, { showSite = false } = {}) {
 }
 
 /** בונה לוח בקרה מלא בתוך container. site ריק = כל האתרים */
-function mountDashboard(container, getSite, { notifyScope = "", getUsers = null } = {}) {
+function mountDashboard(container, getSite, { notifyScope = "", getOperators = null } = {}) {
   container.innerHTML = `
     <div id="d-alerts"></div>
     <div id="d-validity"></div>
     <section class="mb-6">
-      <h2 class="sec-title flex items-center gap-2">מנופים בהפעלה כעת <span id="d-active-cnt" class="badge bg-amber-500 text-slate-900"></span></h2>
+      <h2 class="sec-title flex items-center gap-2">כלים בהפעלה כעת <span id="d-active-cnt" class="badge bg-amber-500 text-slate-900"></span></h2>
       <div id="d-active" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
     </section>
-    <section class="mb-6"><h2 class="sec-title">מצב צי המנופים</h2><div id="d-fleet" class="card"></div></section>
+    <section class="mb-6"><h2 class="sec-title">מצב הכלים</h2><div id="d-fleet" class="card"></div></section>
     <section><h2 class="sec-title">יומן ${HISTORY_HOURS} שעות אחרונות</h2><div id="d-log">${spinner}</div></section>`;
   const v = { cranes: [], active: [], recent: [], ops: new Map() };
 
@@ -1004,7 +1004,7 @@ function mountDashboard(container, getSite, { notifyScope = "", getUsers = null 
     $("#d-active-cnt", container).textContent = active.length;
     drawActiveCards($("#d-active", container), active, { showSite });
     drawFleet($("#d-fleet", container), v.cranes.filter(inSite), { showSite });
-    drawValidity($("#d-validity", container), v.cranes.filter(inSite), getUsers ? getUsers().filter((u) => u.status === "approved" && u.role === "operator" && (!site || u.assignedSite === site)) : null);
+    drawValidity($("#d-validity", container), v.cranes.filter(inSite), getOperators ? getOperators().filter((o) => !site || o.assignedSite === site) : null);
     drawLog($("#d-log", container), recent, { showSite });
   };
 
@@ -1057,7 +1057,7 @@ function drawValidity(el, cranes, operators) {
       <h2 class="text-lg font-black text-amber-900 mb-3">📄 תוקף תסקירים ורישיונות</h2>
       <div class="grid gap-4 ${operators ? "md:grid-cols-2" : ""}">
         ${badCranes.length ? `<div>
-          <div class="font-bold text-slate-700 mb-2">מנופים (${badCranes.length})</div>
+          <div class="font-bold text-slate-700 mb-2">כלים (${badCranes.length})</div>
           <div class="space-y-2">${badCranes.map((c) => `
             <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
               <span><b>${esc(api.unitName(c))}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
@@ -1116,6 +1116,10 @@ function renderAdmin() {
     </section>
     <section data-panel="users" hidden></section>
     <section data-panel="cranes" hidden>
+      <div class="card mb-3 flex flex-wrap items-center gap-3">
+        <div id="data-status" class="flex-1 text-sm text-slate-600">טוען נתונים ממערכת הציוד…</div>
+        <button type="button" id="btn-sync" class="btn btn-dark btn-sm">🔄 סנכרן ממערכת הציוד</button>
+      </div>
       <form id="crane-add" class="card mb-5 grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr_auto] items-end">
         <div><label class="lbl" for="ca-eq">כלי מתוך מערכת הציוד (צ')</label>
           <select id="ca-eq" class="inp" data-eq-select><option value="">טוען רשימת ציוד…</option></select></div>
@@ -1143,7 +1147,9 @@ function renderAdmin() {
 
   // --- תמונת מצב
   const siteSel = $("#ov-site");
-  const dash = mountDashboard($("#ov-dash"), () => siteSel.value, { getUsers: () => v.users });
+  // מנופאים ממערכת הציוד (לפאנל התוקף), במבנה שהפאנל מצפה לו
+  const legacyOperators = () => (v.operators || []).map((o) => ({ name: o.name, assignedSite: api.siteNameFor(o.siteId, v.sites), operatorRecordId: o.id, licenses: o.licenses }));
+  const dash = mountDashboard($("#ov-dash"), () => siteSel.value, { getOperators: legacyOperators });
   siteSel.onchange = () => dash.redraw();
   const refreshSiteSelect = () => {
     const cur = siteSel.value;
@@ -1153,16 +1159,38 @@ function renderAdmin() {
   // --- משתמשים
   const usersPanel = $('[data-panel="users"]');
 
-  // --- מנופאים ואתרים מהמערכת הקיימת (טעינה חד-פעמית)
-  v.operators = null;
-  Promise.all([api.listOperators(), api.listSites().catch(() => [])]).then(([ops, sites]) => {
-    v.operators = ops;
-    v.sites = sites;
-    rememberSites(sites.map((x) => ({ site: x.name })));
-    refreshSiteSelect();
-    drawUsersPanel(usersPanel, v);
-    api.syncUserLicenses(v.users, ops);
-  }).catch((err) => { v.operators = []; onErr(err); });
+  // --- נתונים ממערכת הציוד: ציוד, אתרים, מנופאים (טעינה חד-פעמית + סנכרון כלים)
+  Object.assign(v, { operators: null, sites: null, equipment: null, legacyErr: null, cranesLoaded: false, synced: false });
+  const drawStatus = () => {
+    const el = $("#data-status");
+    if (!el) return;
+    if (v.legacyErr) { el.innerHTML = `<span class="text-red-700">⚠️ לא ניתן לקרוא נתונים ממערכת הציוד: ${esc(v.legacyErr)}</span>`; return; }
+    if (!v.equipment) { el.textContent = "טוען נתונים ממערכת הציוד…"; return; }
+    const rel = v.equipment.filter((e) => api.isRelevantType(e.type)).length;
+    const types = [...new Set(v.equipment.map((e) => e.type || "ללא סוג"))].join(", ");
+    el.innerHTML = `ממערכת הציוד: <b>${v.equipment.length}</b> רשומות ציוד, מתוכן <b>${rel}</b> מנופים ומלגזות · <b>${v.sites.length}</b> אתרים · <b>${v.operators.length}</b> מנופאים
+      <div class="text-xs text-slate-400 mt-0.5">סוגים שנמצאו: ${esc(types || "—")}</div>`;
+  };
+  const runSync = async (manual = false) => {
+    if (!v.equipment || !v.cranesLoaded) return;
+    v.synced = true;
+    const r = await api.syncCranesFromEquipment(v.equipment, v.sites, v.cranes);
+    if (manual || r.added || r.updated) toast(`סנכרון כלים: ${r.added} נוספו, ${r.updated} עודכנו${r.skipped ? `, ${r.skipped} דולגו` : ""}`, r.added ? "success" : "info");
+  };
+  const loadLegacy = async () => {
+    try {
+      const [equipment, ops, sites] = await Promise.all([api.listEquipment(), api.listOperators(), api.listSites()]);
+      Object.assign(v, { equipment, operators: ops, sites, legacyErr: null });
+      rememberSites(sites.map((x) => ({ site: x.name })));
+      refreshSiteSelect();
+      api.syncUserLicenses(v.users || [], ops);
+      if (!v.synced) runSync();
+    } catch (err) {
+      v.legacyErr = err?.code === "permission-denied" ? "אין הרשאת קריאה (בדוק שהודבקו חוקי האבטחה העדכניים)" : errMsg(err);
+      Object.assign(v, { equipment: v.equipment || [], operators: v.operators || [], sites: v.sites || [] });
+    }
+    drawStatus(); drawUsersPanel(usersPanel, v); drawCranes(); dash.redraw();
+  };
   track(api.watchUsers((list) => {
     v.users = list;
     rememberSites(list.map((u) => ({ site: u.assignedSite })));
@@ -1180,29 +1208,33 @@ function renderAdmin() {
   usersPanel.addEventListener("click", (e) => handleUserAction(e, v));
 
   // --- מנופים
-  v.equipment = null; // נטען פעם אחת (הרשומות כוללות קבצי PDF — לא מאזינים בזמן אמת)
   const eqOptions = (selected = "") => !v.equipment
     ? `<option value="">טוען רשימת ציוד…</option>`
     : `<option value="">— ללא קישור —</option>${v.equipment.filter((e) => e.id === selected || api.isRelevantType(e.type)).map((e) => {
         const used = v.cranes.find((c) => c.equipmentId === e.id);
         return `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(api.equipmentLabel(e))} · תסקיר עד ${api.fmtDateStr(e.nextInspectionDate)}${used && e.id !== selected ? ` (מקושר ל${esc(api.unitName(used))})` : ""}</option>`;
       }).join("")}`;
-  const drawCranes = () => {
+  function drawCranes() {
+    if (!v.cranes) return;
     drawCraneList($("#crane-list"), v.cranes, eqOptions);
     $("#ca-eq").innerHTML = eqOptions($("#ca-eq").value);
-  };
-  const loadEquipment = async () => {
-    try { v.equipment = await api.listEquipment(); } catch (err) { v.equipment = []; onErr(err); }
-    drawCranes();
-  };
-  let eqLoading = false;
-  $('[data-tab="cranes"]').addEventListener("click", () => { if (!eqLoading) { eqLoading = true; loadEquipment(); } });
+    drawStatus();
+  }
   track(api.watchCranes(null, (list) => {
     v.cranes = list;
+    v.cranesLoaded = true;
     rememberSites(list);
     refreshSiteSelect();
     drawCranes();
+    if (!v.synced) runSync();
   }, onErr));
+  loadLegacy();
+  $("#btn-sync").onclick = async (e) => {
+    e.currentTarget.disabled = true;
+    await loadLegacy();
+    await runSync(true);
+    e.currentTarget.disabled = false;
+  };
   $("#ca-eq").onchange = () => {
     const e = v.equipment?.find((x) => x.id === $("#ca-eq").value);
     if (!e) return;
@@ -1253,6 +1285,7 @@ function operatorOptions(v, selected) {
 }
 
 function drawUsersPanel(panel, v) {
+  if (!v.users) return;
   const pending = v.users.filter((u) => u.status === "pending");
   const others = v.users.filter((u) => u.status !== "pending");
   const me = state.user.uid;
@@ -1304,6 +1337,24 @@ function drawUsersPanel(panel, v) {
         </table>
       </div>
       <p class="text-xs text-slate-500 mt-2">מנהל אתר ללא שיוך אתר רואה את כל האתרים. מפעיל חייב להיות משויך לאתר.</p>
+    </section>
+    <section class="mt-8">
+      <h2 class="sec-title">מנופאים במערכת הציוד (${v.operators ? v.operators.length : "…"})</h2>
+      ${!v.operators ? spinner : !v.operators.length ? `<div class="card">${empty("לא נמצאו מנופאים")}</div>` : `
+      <div class="card !p-0 overflow-x-auto">
+        <table class="w-full min-w-[640px]">
+          <thead><tr><th class="th">שם</th><th class="th">אתר</th><th class="th">תוקף</th><th class="th">משתמש במערכת זו</th></tr></thead>
+          <tbody>${v.operators.map((o) => {
+            const linkedUser = v.users.find((u) => u.operatorRecordId === o.id);
+            return `<tr>
+              <td class="td font-bold">${esc(o.name)}</td>
+              <td class="td">${esc(api.siteNameFor(o.siteId, v.sites) || "—")}</td>
+              <td class="td"><div class="flex flex-wrap gap-1">${licenseBadges({ operatorRecordId: o.id, licenses: o.licenses })}</div></td>
+              <td class="td">${linkedUser ? `<span class="badge bg-emerald-100 text-emerald-800">${esc(linkedUser.name)}</span>` : `<span class="text-xs text-slate-400">טרם נרשם. שתף איתו את האתר בוואטסאפ</span>`}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>`}
     </section>`;
 }
 

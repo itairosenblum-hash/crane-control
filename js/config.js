@@ -11,6 +11,13 @@ export const firebaseConfig = {
   appId: "1:832258069678:web:480d3c72f423725677c93f",
 };
 
+// ===== חשבונות קבועים =====
+// מפתח המערכת: הרשאות מלאות, לא מקבל התראות.
+export const DEVELOPER_EMAILS = ["itai.rosenblum@gmail.com"];
+// מנהל מערך: הרשאות מלאות, מקבל התראות לפי בחירתו.
+export const ADMIN_EMAILS = ["filiba111@gmail.com"];
+// שינוי ברשימות האלה מחייב עדכון זהה בפונקציה isFixedAdmin() בקובץ firestore.rules
+
 // ערכי ברירת מחדל לספי התראה (באחוזים). מנהל המערך יכול לשנות אותם
 // מתוך המערכת (לשונית "הגדרות התראות"); הערכים כאן משמשים רק עד שנשמרות הגדרות.
 export const DEFAULTS = {

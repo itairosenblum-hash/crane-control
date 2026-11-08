@@ -19,14 +19,19 @@ service cloud.firestore {
     // פונקציות — מערכת בקרת המנופים (craneUsers)
     // =================================================================
     function craneMe() { return get(/databases/$(database)/documents/craneUsers/$(request.auth.uid)).data; }
+    // חשבונות קבועים בעלי הרשאות מלאות (מפתח + מנהל מערך) — תואם ל-config.js
+    function isFixedAdmin() {
+      return isSignedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email in ['itai.rosenblum@gmail.com', 'filiba111@gmail.com'];
+    }
     function craneApproved() {
-      return isSignedIn()
+      return isFixedAdmin() || (isSignedIn()
         && exists(/databases/$(database)/documents/craneUsers/$(request.auth.uid))
-        && craneMe().status == 'approved';
+        && craneMe().status == 'approved');
     }
     function craneRole() { return craneMe().role; }
-    function craneAdmin() { return craneApproved() && craneRole() == 'admin'; }
-    function craneManager() { return craneApproved() && craneRole() in ['admin', 'site_manager']; }
+    function craneAdmin() { return isFixedAdmin() || (craneApproved() && craneRole() == 'admin'); }
+    function craneManager() { return craneAdmin() || (craneApproved() && craneRole() == 'site_manager'); }
     function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
 
     // =================================================================
@@ -62,8 +67,8 @@ service cloud.firestore {
     match /craneUsers/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || craneAdmin());
 
-      // בקשת הרשאה: רק עבור עצמו, בסטטוס ממתין, ללא שיוך וללא קישור למנופאי
-      allow create: if isSignedIn() && request.auth.uid == uid
+      // חשבון קבוע יוצר לעצמו מסמך מנהל; כל השאר — בקשת הרשאה בסטטוס ממתין
+      allow create: if (isFixedAdmin() && request.auth.uid == uid) || isSignedIn() && request.auth.uid == uid
         && request.resource.data.uid == uid
         && request.resource.data.role == 'pending'
         && request.resource.data.status == 'pending'
@@ -91,12 +96,12 @@ service cloud.firestore {
         || (craneApproved()
             && onlyKeys(['currentStatus', 'activeOperationId', 'inspectionUntil', 'inspectionSyncedAt', 'updatedAt'])
             && request.resource.data.currentStatus in ['available', 'in_use', 'maintenance']
-            && (craneRole() == 'site_manager' || resource.data.site == craneMe().assignedSite));
+            && (craneManager() || resource.data.site == craneMe().assignedSite));
     }
 
     match /operations/{opId} {
-      allow read: if craneApproved()
-        && (craneRole() in ['admin', 'site_manager'] || resource.data.operatorId == request.auth.uid);
+      allow read: if craneManager()
+        || (craneApproved() && resource.data.operatorId == request.auth.uid);
 
       // מפעיל פותח הפעלה רק בשמו, באתר שלו, ועם רשומת המנופאי המקושרת אליו
       allow create: if craneApproved()

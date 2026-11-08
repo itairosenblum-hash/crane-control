@@ -171,6 +171,21 @@ export function createAccessRequest(user, { name, phone, requestedRole, idNumber
   });
 }
 
+/** חשבון קבוע (מפתח / מנהל מערך): יוצר או מתקן את מסמך המשתמש כמנהל מערך מאושר */
+export function ensureFixedAdmin(user, existing, { developer = false } = {}) {
+  return setDoc(doc(db, COL.users, user.uid), {
+    uid: user.uid,
+    name: existing?.name || user.displayName || user.email,
+    email: user.email,
+    phone: existing?.phone || "",
+    role: "admin",
+    status: "approved",
+    assignedSite: existing?.assignedSite || "",
+    developer,
+    ...(existing ? {} : { createdAt: serverTimestamp(), requestedRole: "admin" }),
+  }, { merge: true });
+}
+
 export function watchUsers(cb, onErr) {
   return onSnapshot(collection(db, COL.users), (s) => {
     cb(s.docs.map(withId).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)));

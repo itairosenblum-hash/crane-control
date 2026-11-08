@@ -1,7 +1,7 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
 import { login, logout, onAuth } from "./auth.js";
 import * as api from "./firestore.js";
-import { HISTORY_HOURS } from "./config.js";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS } from "./config.js";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -29,6 +29,10 @@ const POST_ITEMS = [
   ["curtainClosed", "וילון סגור"],
   ["craneLocked", "מנוף נעול"],
 ];
+
+const emailOf = () => (state.user?.email || "").toLowerCase();
+const isDeveloper = () => DEVELOPER_EMAILS.map((e) => e.toLowerCase()).includes(emailOf());
+const isFixedAdminEmail = (email) => [...DEVELOPER_EMAILS, ...ADMIN_EMAILS].map((e) => e.toLowerCase()).includes(String(email || "").toLowerCase());
 
 const $app = document.getElementById("app");
 const state = { user: null, profile: null, routeKey: null, subs: [], closing: false };
@@ -154,6 +158,7 @@ async function systemNotify(title, body, tag) {
   } catch { return false; }
 }
 function deliverAlert({ level, title, body, tag, force = false }) {
+  if (isDeveloper() && !force) return; // חשבון המפתח לא מקבל התראות
   const prefs = getPrefs();
   if (!force) {
     if (!prefs.enabled) return;
@@ -254,6 +259,11 @@ onAuth((user) => {
   if (!user) return renderLogin();
   $app.innerHTML = spinner;
   profileUnsub = api.watchUserProfile(user.uid, (profile) => {
+    // חשבונות קבועים מוגדרים אוטומטית כמנהלי מערך
+    if (isFixedAdminEmail(user.email) && (profile?.role !== "admin" || profile?.status !== "approved" || !!profile?.developer !== isDeveloper())) {
+      api.ensureFixedAdmin(user, profile, { developer: isDeveloper() }).catch(onErr);
+      if (!profile) return;
+    }
     state.profile = profile;
     const key = profile ? `${profile.status}|${profile.role}|${profile.assignedSite || ""}` : "none";
     if (key === state.routeKey) return; // שינוי שאינו משפיע על הניתוב
@@ -1134,7 +1144,7 @@ function drawUsersPanel(panel, v) {
           <thead><tr><th class="th">שם</th><th class="th">טלפון</th><th class="th">תפקיד</th><th class="th">אתר</th><th class="th">מנופאי / רישיון</th><th class="th">סטטוס</th><th class="th"></th></tr></thead>
           <tbody>${others.map((u) => `
             <tr data-uid="${esc(u.id)}">
-              <td class="td"><div class="font-bold">${esc(u.name)}${u.id === me ? ` <span class="badge bg-slate-200">אני</span>` : ""}</div><div class="text-xs text-slate-500">${esc(u.email)}</div></td>
+              <td class="td"><div class="font-bold">${esc(u.name)}${u.id === me ? ` <span class="badge bg-slate-200">אני</span>` : ""}${u.developer ? ` <span class="badge bg-indigo-100 text-indigo-800">מפתח</span>` : isFixedAdminEmail(u.email) ? ` <span class="badge bg-amber-100 text-amber-900">מנהל קבוע</span>` : ""}</div><div class="text-xs text-slate-500">${esc(u.email)}</div></td>
               <td class="td" dir="ltr" style="text-align:right">${esc(u.phone)}</td>
               <td class="td">${roleSelect(u.role)}</td>
               <td class="td"><input class="inp-sm" name="site" list="sites-list" value="${esc(u.assignedSite)}" placeholder="כל האתרים"></td>
@@ -1143,7 +1153,7 @@ function drawUsersPanel(panel, v) {
               <td class="td"><span class="badge ${USER_STATUS[u.status]?.cls || ""}">${USER_STATUS[u.status]?.label || esc(u.status)}</span></td>
               <td class="td whitespace-nowrap">
                 <button class="btn btn-dark btn-sm" data-act="save">שמור</button>
-                ${u.id === me ? "" : u.status === "approved"
+                ${u.id === me || isFixedAdminEmail(u.email) ? "" : u.status === "approved"
                   ? `<button class="btn btn-ghost btn-sm text-red-700" data-act="block">השבת</button>`
                   : `<button class="btn btn-ghost btn-sm text-emerald-700" data-act="unblock">הפעל</button>`}
               </td>
@@ -1369,7 +1379,14 @@ function mountAlertSettings(panel) {
 
   panel.innerHTML = `
     <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
-      <form id="np-form" class="card">
+      ${isDeveloper() ? `<div class="card">
+        <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
+        <div class="rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 p-4 mt-3">
+          <div class="font-extrabold">חשבון מפתח</div>
+          <p class="text-sm mt-1">לחשבון זה הרשאות מלאות, אבל הוא לא מקבל התראות. ההתראות נשלחות למנהל המערך (${esc(ADMIN_EMAILS.join(", "))}) לפי ההגדרות שלו.</p>
+        </div>
+      </div>` : ""}
+      <form id="np-form" class="card" ${isDeveloper() ? "hidden" : ""}>
         <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
         <p class="text-sm text-slate-500 mb-2">מתי ואיך אתה מקבל התראה על הפעלה חדשה עם ליקויים.</p>
         <div class="divide-y divide-slate-100">

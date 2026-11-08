@@ -76,9 +76,9 @@ service cloud.firestore {
         && request.resource.data.requestedRole in ['operator', 'site_manager']
         && !('operatorRecordId' in request.resource.data);
 
-      // רק מנהל מערך משנה תפקיד/סטטוס/אתר/קישור; משתמש מעדכן רק שם, טלפון והעדפות התראה
+      // רק מנהל מערך משנה תפקיד/סטטוס/אתר/קישור; משתמש מעדכן רק שם, טלפון, העדפות התראה ומזהי מכשירים
       allow update: if craneAdmin()
-        || (isSignedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'notifyPrefs', 'updatedAt']));
+        || (isSignedIn() && request.auth.uid == uid && onlyKeys(['name', 'phone', 'notifyPrefs', 'fcmTokens', 'updatedAt']));
 
       allow delete: if craneAdmin();
     }

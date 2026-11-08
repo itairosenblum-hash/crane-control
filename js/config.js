@@ -11,6 +11,12 @@ export const firebaseConfig = {
   appId: "1:832258069678:web:480d3c72f423725677c93f",
 };
 
+// מפתח Web Push (ציבורי) — Firebase Console → Project settings → Cloud Messaging → Web Push certificates
+export const VAPID_KEY = "BI59opR9WqqQKdLzARZkjUIkX5dA0iEBfaW7IAMkjlF_g_Ru24d55maCu0SPac-gtnC8kRw4PiMbA0BulhrdzQg";
+
+// כתובת האתר (לקישור מתוך ההתראה)
+export const SITE_URL = "https://itairosenblum-hash.github.io/crane-control/";
+
 // ===== חשבונות קבועים =====
 // מפתח המערכת: הרשאות מלאות, לא מקבל התראות.
 export const DEVELOPER_EMAILS = ["itai.rosenblum@gmail.com"];

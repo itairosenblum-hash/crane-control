@@ -1,6 +1,7 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
 import { login, logout, onAuth } from "./auth.js";
 import * as api from "./firestore.js";
+import * as push from "./push.js";
 import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS } from "./config.js";
 
 // ---------- קבועים ----------
@@ -126,7 +127,7 @@ function errMsg(e) {
 const onErr = (e) => toast(errMsg(e), "error");
 
 // ---------- התראות למשתמש ----------
-const DEFAULT_PREFS = { enabled: true, minLevel: "critical", browser: false, sound: true };
+const DEFAULT_PREFS = { enabled: true, minLevel: "critical", push: false, sound: true };
 const getPrefs = () => ({ ...DEFAULT_PREFS, ...(state.profile?.notifyPrefs || {}) });
 let swReg = null;
 if ("serviceWorker" in navigator) {
@@ -166,7 +167,8 @@ function deliverAlert({ level, title, body, tag, force = false }) {
   }
   toast(title, level === "critical" ? "error" : "info");
   if (prefs.sound) beep(level);
-  if (prefs.browser) systemNotify(title, body, tag);
+  // כשההתראות לטלפון פעילות — השרת שולח את התראת המערכת (גם כשהאתר סגור)
+  if (!prefs.push) systemNotify(title, body, tag);
 }
 function notifyOp(op) {
   const a = api.analyzePreCheck(op.preCheck || {});
@@ -1092,6 +1094,9 @@ function renderAdmin() {
 
   // --- הגדרות התראות
   mountAlertSettings($('[data-panel="alerts"]'));
+
+  // רענון שקט של מזהה המכשיר להתראות לטלפון (המזהה עשוי להתחלף מעת לעת)
+  if (getPrefs().push && !isDeveloper()) push.currentToken().then((t) => t && api.addPushToken(state.user.uid, t)).catch(() => {});
 }
 
 // ----- ניהול משתמשים -----
@@ -1374,8 +1379,6 @@ function levelRow(key, label, cfg) {
 
 function mountAlertSettings(panel) {
   const prefs = getPrefs();
-  const perm = () => (!("Notification" in window) ? "unsupported" : Notification.permission);
-  const permText = { granted: "✓ מאושר במכשיר זה", denied: "✗ נחסם — יש לאשר בהגדרות הדפדפן", default: "יתבקש אישור בשמירה", unsupported: "הדפדפן לא תומך בהתראות" };
 
   panel.innerHTML = `
     <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
@@ -1401,13 +1404,13 @@ function mountAlertSettings(panel) {
                 </label>`).join("")}
             </div>
           </div>
-          ${switchInput("browser", prefs.browser, "התראת מערכת (טלפון / מחשב)", `<span id="np-perm">${permText[perm()]}</span>`)}
+          ${switchInput("push", prefs.push, "📱 התראות לטלפון — גם כשהאתר סגור", `<span id="np-perm">בודק תמיכה במכשיר…</span>`)}
           ${switchInput("sound", prefs.sound, "צליל התראה", "צפצוף אחד לראשונית, שלושה לחמורה")}
         </div>
-        <p class="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-2">ההתראות מתקבלות כל עוד המערכת פתוחה בדפדפן, גם כשהלשונית ברקע.</p>
+        <p class="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-2">ההתראות לטלפון נרשמות לכל מכשיר בנפרד — יש להפעיל אותן בכל טלפון/מחשב שבו תרצה לקבל התראות. באייפון: קודם להוסיף את האתר למסך הבית.</p>
         <div class="flex gap-2 mt-4">
           <button class="btn btn-dark flex-1">שמור</button>
-          <button type="button" id="np-test" class="btn btn-ghost">שלח בדיקה</button>
+          <button type="button" id="np-test" class="btn btn-ghost">שלח בדיקה לטלפון</button>
         </div>
       </form>
 
@@ -1455,35 +1458,53 @@ function mountAlertSettings(panel) {
   const np = $("#np-form", panel);
   const syncNp = () => {
     const on = np.elements.enabled.checked;
-    $$("#np-level, [name=browser], [name=sound]", np).forEach((el) => {
+    $$("#np-level, [name=push], [name=sound]", np).forEach((el) => {
       (el.closest("label") || el).classList.toggle("opacity-40", !on);
     });
   };
   np.addEventListener("change", syncNp);
   syncNp();
+  push.pushSupport().then((sup) => {
+    $("#np-perm", np).textContent = !sup.ok ? sup.reason
+      : Notification.permission === "granted" ? "✓ ההתראות מאושרות במכשיר זה" : "יתבקש אישור בשמירה";
+  });
   np.onsubmit = async (e) => {
     e.preventDefault();
+    const btn = np.querySelector("button:not([type])");
     const next = {
       enabled: np.elements.enabled.checked,
       minLevel: np.elements.minLevel.value,
-      browser: np.elements.browser.checked,
+      push: np.elements.push.checked,
       sound: np.elements.sound.checked,
     };
-    if (next.enabled && next.browser && perm() === "default") await Notification.requestPermission();
-    $("#np-perm", np).textContent = permText[perm()];
-    if (next.browser && perm() !== "granted") toast("התראות מערכת לא אושרו בדפדפן — יוצגו התראות בתוך המערכת בלבד", "error");
-    try { await api.saveNotifyPrefs(state.user.uid, next); toast("העדפות ההתראות נשמרו", "success"); } catch (err) { onErr(err); }
+    btn.disabled = true;
+    try {
+      if (next.push) {
+        const token = await push.enablePush();
+        await api.addPushToken(state.user.uid, token);
+        $("#np-perm", np).textContent = "✓ המכשיר הזה רשום לקבלת התראות";
+      } else if (getPrefs().push) {
+        const token = await push.currentToken();
+        if (token) await api.removePushToken(state.user.uid, token);
+        await push.disablePush();
+      }
+      await api.saveNotifyPrefs(state.user.uid, next);
+      toast("העדפות ההתראות נשמרו", "success");
+    } catch (err) {
+      np.elements.push.checked = false;
+      toast(err?.message?.startsWith("שגיאה") || /[א-ת]/.test(err?.message || "") ? err.message : errMsg(err), "error");
+    } finally { btn.disabled = false; }
   };
-  $("#np-test", panel).onclick = async () => {
-    if (np.elements.browser.checked && perm() === "default") await Notification.requestPermission();
-    $("#np-perm", np).textContent = permText[perm()];
-    const level = np.elements.minLevel.value === "warning" ? "warning" : "critical";
-    const prefsNow = { browser: np.elements.browser.checked, sound: np.elements.sound.checked };
-    toast(level === "critical" ? "🚨 בדיקה — התראה חמורה" : "⚠️ בדיקה — התראה ראשונית", level === "critical" ? "error" : "info");
-    if (prefsNow.sound) beep(level);
-    if (prefsNow.browser && !(await systemNotify("בדיקת התראה — בקרת מנופים", "כך תיראה התראה על ליקוי במנוף", "test"))) {
-      toast("התראת מערכת לא נשלחה — בדוק הרשאות דפדפן", "error");
-    }
+  $("#np-test", panel).onclick = async (e) => {
+    const b = e.currentTarget;
+    if (!getPrefs().push) return toast("קודם הפעל 'התראות לטלפון' ולחץ שמור", "error");
+    b.disabled = true;
+    try {
+      const n = await api.sendTestPush();
+      toast(n ? `נשלחה התראת בדיקה ל-${n} מכשירים — אמורה להגיע תוך כמה שניות` : "לא נמצא מכשיר רשום — הפעל מחדש את ההתראות לטלפון", n ? "success" : "error");
+    } catch (err) {
+      toast(err?.code === "functions/not-found" || err?.code === "functions/internal" ? "שירות ההתראות בשרת עדיין לא הותקן (ראה הוראות התקנה)" : errMsg(err), "error");
+    } finally { b.disabled = false; }
   };
 
   // ---- מדדי התראה

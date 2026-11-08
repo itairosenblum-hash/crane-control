@@ -2,7 +2,7 @@
 import { db } from "./auth.js";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
-  orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp,
+  orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { DEFAULTS } from "./config.js";
 
@@ -92,6 +92,17 @@ export function watchAlertSettings(cb, onErr) {
 export function saveAlertSettings(data, updatedBy) {
   return setDoc(doc(db, COL.settings, "alerts"), { ...data, updatedBy, updatedAt: serverTimestamp() });
 }
+
+/** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
+export async function sendTestPush() {
+  const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
+  const { app } = await import("./auth.js");
+  const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")();
+  return res.data?.sent || 0;
+}
+
+export const addPushToken = (uid, token) => updateDoc(doc(db, COL.users, uid), { fcmTokens: arrayUnion(token) });
+export const removePushToken = (uid, token) => updateDoc(doc(db, COL.users, uid), { fcmTokens: arrayRemove(token) });
 
 export function saveNotifyPrefs(uid, prefs) {
   return updateDoc(doc(db, COL.users, uid), { notifyPrefs: prefs, updatedAt: serverTimestamp() });

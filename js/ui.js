@@ -113,6 +113,8 @@ function errMsg(e) {
     "failed-precondition": "הפעולה נכשלה (ייתכן שחסר אינדקס או שאין חיבור)",
     "auth/network-request-failed": "בעיית רשת — נסה שוב",
     "auth/unauthorized-domain": "הדומיין לא מאושר ב-Firebase Authentication",
+    "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "מפתח ה-API של Firebase חסר או שגוי (js/config.js)",
+    "auth/invalid-api-key": "מפתח ה-API של Firebase חסר או שגוי (js/config.js)",
   };
   console.error(e);
   return map[e?.code] || `שגיאה: ${e?.message || e}`;

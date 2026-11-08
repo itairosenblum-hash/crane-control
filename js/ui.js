@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082306";
-import * as api from "./firestore.js?v=202611082306";
-import * as push from "./push.js?v=202611082306";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082306";
+import { login, logout, onAuth } from "./auth.js?v=202611082314";
+import * as api from "./firestore.js?v=202611082314";
+import * as push from "./push.js?v=202611082314";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082314";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -83,10 +83,18 @@ function clearSubs() {
   state.subs = [];
 }
 
+const LOGO = `<span class="w-9 h-9 rounded-[11px] bg-safety inline-flex items-center justify-center shrink-0"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D2633" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21V3M4 21h7M7 3h14M7 7l4-4M3 3h4M18 3v6"/><path d="M16.5 9h3l-.5 3h-2z" fill="#1D2633"/></svg></span>`;
+const ICONS = {
+  eye: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  logout: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>`,
+  chevron: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`,
+  check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
+};
+
 function toast(msg, type = "info") {
-  const colors = { info: "bg-slate-800", success: "bg-slate-900", error: "bg-red-700" };
+  const colors = { info: "bg-ink/95", success: "bg-ink/95", error: "bg-[#B42318]" };
   const el = document.createElement("div");
-  el.className = `${colors[type] || colors.info} text-white font-bold px-5 py-3 rounded-xl shadow-xl max-w-md w-full text-center pointer-events-auto transition-opacity`;
+  el.className = `${colors[type] || colors.info} text-white text-[15px] font-medium px-5 py-3 rounded-full shadow-lg backdrop-blur max-w-md text-center pointer-events-auto transition-opacity`;
   el.textContent = msg;
   $("#toast-root").appendChild(el);
   setTimeout(() => { el.style.opacity = "0"; }, type === "error" ? 5000 : 2800);
@@ -97,13 +105,13 @@ function confirmDialog({ title, html = "", confirmText = "אישור", cancelTex
   return new Promise((resolve) => {
     const root = $("#modal-root");
     root.innerHTML = `
-      <div class="fixed inset-0 z-40 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" data-close>
-        <div class="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl" role="dialog" aria-modal="true">
-          <h3 class="text-xl font-extrabold mb-3">${esc(title)}</h3>
-          <div class="text-slate-700 mb-5">${html}</div>
-          <div class="flex gap-3">
-            <button class="btn flex-1 ${danger ? "btn-danger" : "btn-primary"}" data-ok>${esc(confirmText)}</button>
-            <button class="btn btn-ghost flex-1" data-cancel>${esc(cancelText)}</button>
+      <div class="fixed inset-0 z-40 bg-ink/40 flex items-end sm:items-center justify-center sm:p-4" data-close>
+        <div class="sheet" role="dialog" aria-modal="true">
+          <h3 class="text-xl font-bold mb-2">${esc(title)}</h3>
+          <div class="text-muted mb-6">${html}</div>
+          <div class="grid gap-2">
+            <button class="btn btn-xl ${danger ? "btn-danger" : "btn-primary"}" data-ok>${esc(confirmText)}</button>
+            <button class="btn btn-xl btn-ghost" data-cancel>${esc(cancelText)}</button>
           </div>
         </div>
       </div>`;
@@ -244,10 +252,10 @@ function installBanner() {
   if (isStandaloneApp()) return "";
   try { if (Date.now() < Number(localStorage.getItem(INSTALL_KEY) || 0)) return ""; } catch { /* ignore */ }
   return `
-    <div id="install-banner" class="bg-white border-b border-slate-200 text-slate-700">
-      <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2">
-        <span class="text-xl">📲</span>
-        <span class="flex-1 text-sm font-bold leading-tight">האפליקציה לא מותקנת בטלפון. התקן לגישה מהירה ולהתראות.</span>
+    <div id="install-banner" class="max-w-6xl mx-auto px-4 pt-3">
+      <div class="bg-white rounded-2xl px-4 py-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(29,38,51,0.06)]">
+        ${LOGO}
+        <span class="flex-1 text-sm leading-snug"><b class="block">התקן את האפליקציה</b><span class="text-muted">גישה מהירה מהמסך הראשי והתראות לטלפון</span></span>
         <button id="btn-install" class="btn btn-primary btn-sm">התקן</button>
         <button id="btn-install-x" class="px-2 text-xl text-slate-400" aria-label="סגור">×</button>
       </div>
@@ -276,23 +284,23 @@ function shell(inner, { wide = true } = {}) {
     ? `${esc(p.name)} · ${ROLE_LABELS[p.role] || ""}${p.assignedSite ? ` · ${esc(p.assignedSite)}` : ""}`
     : esc(state.user?.email || "");
   $app.innerHTML = `
-    <header class="sticky top-0 z-30 bg-slate-900 text-white shadow-lg" style="padding-top: env(safe-area-inset-top)">
-      <div class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto px-4 h-14 flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center text-xl">🏗️</div>
+    <header class="sticky top-0 z-30 bg-concrete/85 backdrop-blur-xl border-b border-ink/5" style="padding-top: env(safe-area-inset-top)">
+      <div class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto px-4 h-[60px] flex items-center gap-3">
+        ${LOGO}
         <div class="flex-1 min-w-0">
-          <div class="font-extrabold leading-tight">בקרת מנופים</div>
-          <div class="text-xs text-slate-300 truncate">${sub}</div>
+          <div class="font-bold leading-tight">בקרת מנופים</div>
+          <div class="text-xs text-muted truncate">${sub}</div>
         </div>
-        ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="text-sm font-bold px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20" title="תצוגה כמשתמש">👁️</button>` : ""}
-        <button id="btn-logout" class="text-sm font-bold px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">יציאה</button>
+        ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="icon-btn" title="תצוגה כמשתמש" aria-label="תצוגה כמשתמש">${ICONS.eye}</button>` : ""}
+        <button id="btn-logout" class="icon-btn" title="יציאה" aria-label="יציאה">${ICONS.logout}</button>
       </div>
     </header>
-    ${state.viewAs ? `<div class="bg-slate-700 text-white"><div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm font-bold">
-      <span class="flex-1">👁️ מצב תצוגה: ${esc(state.viewAs.label)}. פעולות לא נשמרות.</span>
-      <button id="btn-viewas-exit" class="btn btn-sm bg-white text-slate-800">יציאה</button></div></div>` : ""}
+    ${state.viewAs ? `<div class="bg-ink text-white"><div class="max-w-6xl mx-auto px-4 py-2.5 flex items-center gap-2 text-sm">
+      <span class="flex-1">תצוגה כ<b>${esc(state.viewAs.label)}</b>. פעולות לא נשמרות.</span>
+      <button id="btn-viewas-exit" class="btn btn-sm bg-white text-ink">סיום תצוגה</button></div></div>` : ""}
     ${state.profile?.status === "approved" ? installBanner() : ""}
-    <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto p-4 pb-28">${inner}
-      <div class="text-center text-[10px] text-slate-300 mt-8">גרסה ${APP_VERSION}</div></main>
+    <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto px-4 pt-4 pb-32">${inner}
+      <div class="text-center text-[11px] text-slate-400 mt-10">גרסה ${APP_VERSION}</div></main>
     <datalist id="sites-list"></datalist>`;
   $("#btn-logout").onclick = () => logout();
   $("#btn-viewas") && ($("#btn-viewas").onclick = openViewAs);
@@ -326,9 +334,9 @@ function shareWhatsApp() {
 async function openViewAs() {
   const root = $("#modal-root");
   root.innerHTML = `
-    <div class="fixed inset-0 z-40 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" data-close>
-      <div class="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <h3 class="text-xl font-extrabold mb-1">תצוגה כמשתמש</h3>
+    <div class="fixed inset-0 z-40 bg-ink/40 flex items-end sm:items-center justify-center sm:p-4" data-close>
+      <div class="sheet max-h-[88vh] overflow-y-auto">
+        <h3 class="text-xl font-bold mb-1">תצוגה כמשתמש</h3>
         <p class="text-sm text-slate-500 mb-3">רואים את האתר בדיוק כמו המשתמש. פעולות הן סימולציה ולא נשמרות.</p>
         <input id="va-q" class="inp-sm mb-3" placeholder="חיפוש מנופאי / אתר">
         <div class="font-bold text-slate-700 mb-2">מנופאים מאתר התסקירים</div>
@@ -436,15 +444,15 @@ const GOOGLE_ICON = `<svg width="22" height="22" viewBox="0 0 48 48" aria-hidden
 
 function renderLogin() {
   $app.innerHTML = `
-    <div class="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-slate-900 via-slate-900 to-slate-800">
-      <div class="w-full max-w-sm text-center text-white">
-        <div class="w-20 h-20 mx-auto rounded-3xl bg-amber-500 flex items-center justify-center text-5xl shadow-xl mb-6">🏗️</div>
-        <h1 class="text-3xl font-black">בקרת מנופים</h1>
-        <p class="text-slate-300 mt-2 mb-10">שליטה ובקרה על הפעלת מנופים ומלגזות</p>
-        <button id="btn-login" class="btn w-full bg-white text-slate-900 text-lg py-4 rounded-2xl shadow-xl hover:bg-slate-100">
-          ${GOOGLE_ICON}<span>התחברות עם Google</span>
+    <div class="min-h-[100dvh] flex flex-col items-center justify-center p-6">
+      <div class="w-full max-w-sm">
+        <div class="w-16 h-16 rounded-[20px] bg-safety flex items-center justify-center mb-8"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#1D2633" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21V3M4 21h7M7 3h14M7 7l4-4M3 3h4M18 3v6"/><path d="M16.5 9h3l-.5 3h-2z" fill="#1D2633"/></svg></div>
+        <h1 class="text-[34px] leading-tight font-bold tracking-tight">בקרת מנופים</h1>
+        <p class="text-muted text-lg mt-2 mb-12">פתיחה וסגירה של הפעלות מנוף ומלגזה, ובקרה על תסקירים ורישיונות.</p>
+        <button id="btn-login" class="btn btn-xl bg-white text-ink shadow-[0_1px_2px_rgba(29,38,51,0.08)] ring-1 ring-ink/10">
+          ${GOOGLE_ICON}<span>כניסה עם Google</span>
         </button>
-        <p class="text-xs text-slate-400 mt-6">משתמש חדש? לאחר ההתחברות תתבקש למלא בקשת הרשאה</p>
+        <p class="text-sm text-muted mt-5">בכניסה הראשונה תתבקש למלא בקשת הרשאה.</p>
       </div>
     </div>`;
   const btn = $("#btn-login");
@@ -461,7 +469,6 @@ function renderRequestForm() {
   const u = state.user;
   shell(`
     <div class="card">
-      <div class="text-4xl mb-2">👋</div>
       <h1 class="text-2xl font-extrabold">בקשת הרשאה למערכת</h1>
       <p class="text-slate-500 mb-5">מלא את הפרטים. הבקשה תועבר לאישור מנהל המערך.</p>
       <form id="req-form" class="space-y-4">
@@ -473,10 +480,10 @@ function renderRequestForm() {
           <input id="f-idn" name="idNumber" class="inp" inputmode="numeric" dir="ltr" style="text-align:right" placeholder="9 ספרות"></div>
         <div><span class="lbl">תפקיד מבוקש</span>
           <div class="grid grid-cols-2 gap-3">
-            ${[["operator", "מפעיל מנוף", "🕹️"], ["site_manager", "מנהל אתר", "📋"]].map(([v, l, i], idx) => `
+            ${[["operator", "מפעיל מנוף", ""], ["site_manager", "מנהל אתר", ""]].map(([v, l, i], idx) => `
               <label class="crane-opt cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
                 <input type="radio" name="requestedRole" value="${v}" class="sr-only" ${idx === 0 ? "checked" : ""}>
-                <div class="text-3xl">${i}</div><div class="font-bold mt-1">${l}</div>
+                <div class="font-semibold">${l}</div>
               </label>`).join("")}
           </div>
         </div>
@@ -502,7 +509,7 @@ function renderPending() {
   const p = state.profile;
   shell(`
     <div class="card text-center py-10">
-      <div class="w-16 h-16 mx-auto rounded-full bg-amber-100 flex items-center justify-center text-3xl mb-4">⏳</div>
+      <div class="w-14 h-14 mx-auto rounded-full bg-[#FDF1DC] flex items-center justify-center mb-5"><span class="w-3 h-3 rounded-full bg-[#B26B00] animate-pulse"></span></div>
       <h1 class="text-2xl font-extrabold">ממתין לאישור מנהל</h1>
       <p class="text-slate-500 mt-2">הבקשה שלך התקבלה. המסך יתעדכן אוטומטית ברגע שתאושר.</p>
       <dl class="mt-6 text-right bg-slate-50 rounded-xl p-4 space-y-1 text-sm">
@@ -516,7 +523,7 @@ function renderPending() {
 function renderBlocked() {
   shell(`
     <div class="card text-center py-10">
-      <div class="w-16 h-16 mx-auto rounded-full bg-red-100 flex items-center justify-center text-3xl mb-4">⛔</div>
+      <div class="w-14 h-14 mx-auto rounded-full bg-[#FDE8E6] flex items-center justify-center mb-5"><span class="w-3 h-3 rounded-full bg-[#B42318]"></span></div>
       <h1 class="text-2xl font-extrabold">אין גישה למערכת</h1>
       <p class="text-slate-500 mt-2">הבקשה נדחתה או שהחשבון הושבת. לבירור פנה למנהל המערך.</p>
     </div>`, { wide: false });
@@ -535,7 +542,7 @@ function rememberLocation(loc) {
 function renderOperator() {
   const p = me();
   if (!p.assignedSite) {
-    shell(`<div class="card text-center py-10"><div class="text-4xl mb-3">📍</div>
+    shell(`<div class="card text-center py-10">
       <h1 class="text-xl font-extrabold">לא שויך לך אתר</h1>
       <p class="text-slate-500 mt-2">פנה למנהל המערך לשיוך לאתר.</p></div>`, { wide: false });
     return;
@@ -580,22 +587,21 @@ function drawPick(root, v) {
   const avail = usable.filter((c) => c.currentStatus === "available");
   const busy = usable.filter((c) => c.currentStatus !== "available");
   root.innerHTML = `
-    <div class="flex items-center justify-between gap-2 mb-3">
-      <h1 class="text-2xl font-black">בחר כלי</h1>
-      <div class="flex flex-wrap justify-end gap-1">${licenseBadges(me())}</div>
-    </div>
-    <div class="space-y-2">
-      ${avail.length ? avail.map((c) => `
-        <button type="button" class="w-full flex items-center justify-between gap-3 rounded-2xl bg-white border-2 border-slate-200 active:border-slate-900 active:bg-slate-50 px-4 py-4 text-right shadow-sm" data-crane="${esc(c.id)}">
-          <span>
-            <span class="block text-sm font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span>
-            <span class="block text-3xl font-black leading-tight">${esc(c.craneId)}</span>
-          </span>
-          <span class="flex flex-col items-end gap-1">${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}<span class="text-2xl text-slate-300">‹</span></span>
-        </button>`).join("") : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
-    </div>
-    ${busy.length ? `<div class="mt-4 text-sm text-slate-500 font-bold mb-1">לא זמינים</div>
-      <div class="flex flex-wrap gap-2">${busy.map((c) => `<span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${esc(c.craneId)} · ${CRANE_STATUS[c.currentStatus]?.label}</span>`).join("")}</div>` : ""}`;
+    <h1 class="page-title">בחר כלי</h1>
+    <div class="flex flex-wrap gap-1.5 mt-2 mb-5">${licenseBadges(me())}</div>
+    <div class="sec-title">פנויים באתר ${esc(me().assignedSite)}</div>
+    ${avail.length ? `<div class="group-list">${avail.map((c) => `
+      <button type="button" class="w-full flex items-center gap-3 px-4 py-3.5 text-right active:bg-slate-50" data-crane="${esc(c.id)}">
+        <span class="flex-1 min-w-0">
+          <span class="block text-[13px] text-muted">${api.kindOf(c.equipmentType)}</span>
+          <span class="block text-2xl font-bold leading-tight tracking-tight">${esc(c.craneId)}</span>
+        </span>
+        ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
+        <span class="text-slate-300">${ICONS.chevron}</span>
+      </button>`).join("")}</div>` : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
+    ${busy.length ? `<div class="sec-title mt-6">לא זמינים</div>
+      <div class="group-list">${busy.map((c) => `
+        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${api.kindOf(c.equipmentType)} ${esc(c.craneId)}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}`;
   $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; mountCheck(root, v); }; });
 }
 
@@ -606,8 +612,8 @@ function levelChips(name, label, key) {
   return `
     <div class="py-3">
       <div class="flex items-baseline justify-between mb-2">
-        <span class="font-extrabold text-lg">${label}</span>
-        <span class="text-2xl font-black tabular-nums" data-level-val="${name}">—</span>
+        <span class="text-[17px] font-semibold">${label}</span>
+        <span class="text-2xl font-bold tabular-nums" data-level-val="${name}">—</span>
       </div>
       <div class="grid grid-cols-5 gap-1.5" data-level="${name}">
         ${LEVEL_CHIPS.map((n) => `<button type="button" class="lvl ${tone(n)}" data-n="${n}">${n}</button>`).join("")}
@@ -616,8 +622,8 @@ function levelChips(name, label, key) {
 }
 function toggleRow(name, label) {
   return `
-    <div class="flex items-center justify-between gap-2 py-2" data-toggle="${name}">
-      <span class="font-bold">${label}</span>
+    <div class="flex items-center justify-between gap-2 px-4 py-2.5" data-toggle="${name}">
+      <span class="text-[17px]">${label}</span>
       <div class="flex gap-1.5">
         <button type="button" class="tgl" data-val="1">תקין</button>
         <button type="button" class="tgl" data-val="0">לא תקין</button>
@@ -630,11 +636,11 @@ function mountCheck(root, v) {
   const crane = v.cranes.find((c) => c.id === v.selected);
   const recent = recentLocations();
   root.innerHTML = `
-    <div class="flex items-center gap-3 mb-3">
-      <button type="button" id="btn-change" class="btn btn-ghost btn-sm">‹ החלף</button>
-      <div class="flex-1 min-w-0">
-        <div class="text-sm font-bold text-slate-500">${api.kindOf(crane?.equipmentType)}</div>
-        <div class="text-2xl font-black leading-tight">${esc(v.selected)}</div>
+    <button type="button" id="btn-change" class="text-sm font-medium text-muted mb-1 inline-flex items-center gap-1"><span class="rotate-180">${ICONS.chevron}</span>כל הכלים</button>
+    <div class="flex items-end justify-between gap-3 mb-5">
+      <div>
+        <div class="text-sm text-muted">${api.kindOf(crane?.equipmentType)}</div>
+        <h1 class="page-title">${esc(v.selected)}</h1>
       </div>
       ${validityBadge(crane?.inspectionUntil, "inspection", { linked: !!crane?.equipmentId, short: true })}
     </div>
@@ -647,25 +653,23 @@ function mountCheck(root, v) {
         </div>
         <div>
           <label class="lbl" for="f-hours">שעות מנוע</label>
-          <input id="f-hours" name="engineHours" class="inp text-center text-2xl font-black" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0">
+          <input id="f-hours" name="engineHours" class="inp text-center text-2xl font-bold" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0">
         </div>
       </section>
       <section class="card !py-1 divide-y divide-slate-100">
-        ${levelChips("fuelLevel", "דלק %", "fuel")}
-        ${levelChips("ureaLevel", "אוראה %", "urea")}
+        ${levelChips("fuelLevel", "דלק", "fuel")}
+        ${levelChips("ureaLevel", "אוראה", "urea")}
       </section>
-      <section class="card">
-        <div class="flex items-center justify-between mb-1">
-          <span class="font-extrabold text-lg">בדיקות</span>
-          <button type="button" id="btn-all-ok" class="btn btn-success btn-sm">✓ הכל תקין</button>
-        </div>
-        <div class="divide-y divide-slate-100">
-          ${Object.entries(PRE_TOGGLES).map(([k, l]) => toggleRow(k, l)).join("")}
-        </div>
+      <div class="flex items-center justify-between px-1 pt-2">
+        <span class="text-sm font-semibold text-muted">בדיקות לפני הפעלה</span>
+        <button type="button" id="btn-all-ok" class="btn btn-success btn-sm">${ICONS.check} הכל תקין</button>
+      </div>
+      <section class="group-list">
+        ${Object.entries(PRE_TOGGLES).map(([k, l]) => toggleRow(k, l)).join("")}
       </section>
       <div id="pre-issues"></div>
       <div class="sticky bottom-3 z-10">
-        <button type="submit" class="btn btn-primary btn-xl">▶ התחל הפעלה</button>
+        <button type="submit" class="btn btn-primary btn-xl shadow-lg shadow-ink/20">התחל הפעלה</button>
       </div>
     </form>`;
   window.scrollTo(0, 0);
@@ -733,7 +737,7 @@ function drawPreIssues(v, form) {
   $("#pre-issues").innerHTML = a.level ? `
     <div class="rounded-2xl border ${crit ? "border-red-200 bg-red-50/60" : "border-amber-200 bg-amber-50/60"} p-3">
       <div class="flex flex-wrap gap-1.5">${issueChips(values)}</div>
-      ${a.blockers.length ? `<div class="mt-2 rounded-xl bg-red-50 text-red-800 ring-1 ring-red-200 font-extrabold p-3">⛔ לא ניתן להתחיל: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
+      ${a.blockers.length ? `<div class="mt-2 rounded-xl bg-[#FDE8E6] text-[#B42318] font-semibold p-3">לא ניתן להתחיל: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
     </div>` : "";
   const btn = form.querySelector("button[type=submit]");
   if (btn && !v.submitting) btn.classList.toggle("opacity-50", a.blockers.length > 0);
@@ -777,7 +781,7 @@ async function submitPreCheck(root, v, form) {
   } catch (e) {
     toast(errMsg(e), "error");
     btn.disabled = false;
-    btn.textContent = "▶ התחל הפעלה";
+    btn.textContent = "התחל הפעלה";
   } finally {
     v.submitting = false;
   }
@@ -789,17 +793,22 @@ function mountActive(root, v) {
   Object.assign(v, { mode: "active", opId: op.id });
   const pc = op.preCheck || {};
   root.innerHTML = `
-    <div class="rounded-3xl bg-slate-900 text-white p-6 text-center shadow-xl">
-      <div class="inline-flex items-center gap-2 badge bg-emerald-500/20 text-emerald-300 text-sm mb-2">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> בהפעלה
+    <div class="rounded-[28px] bg-safety text-ink px-6 pt-6 pb-8">
+      <div class="flex items-center justify-between">
+        <span class="inline-flex items-center gap-2 text-sm font-semibold"><span class="w-2.5 h-2.5 rounded-full bg-ink animate-pulse"></span>בהפעלה</span>
+        <span class="text-sm font-medium">החל ב-${fmtTime(op.startTime)}</span>
       </div>
-      <div class="text-slate-400 font-bold">${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}</div>
-      ${since(op.startTime, "block text-6xl font-black text-white my-3")}
-      <div class="text-slate-400 text-sm">${esc(pc.workLocation)} · התחלה ${fmtTime(op.startTime)}</div>
+      ${since(op.startTime, "block text-center text-[64px] leading-none font-bold tracking-tight mt-10 mb-3")}
+      <div class="text-center text-sm font-medium opacity-70">זמן הפעלה</div>
+    </div>
+    <div class="group-list mt-4">
+      <div class="flex justify-between px-4 py-3.5"><span class="text-muted">כלי</span><b>${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}</b></div>
+      <div class="flex justify-between px-4 py-3.5"><span class="text-muted">מיקום</span><b>${esc(pc.workLocation)}</b></div>
+      <div class="flex justify-between px-4 py-3.5"><span class="text-muted">שעות מנוע בפתיחה</span><b class="tabular-nums">${esc(pc.engineHours)}</b></div>
     </div>
     ${(pc.issues || []).length ? `<div class="mt-3 flex flex-wrap gap-1.5">${issueChips(pc)}</div>` : ""}
-    <div class="fixed bottom-0 inset-x-0 p-3 bg-gradient-to-t from-slate-100 via-slate-100" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
-      <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-primary btn-xl">⏹ סיום הפעלה</button></div>
+    <div class="fixed bottom-0 inset-x-0 px-4 pt-3 bg-concrete/85 backdrop-blur-xl" style="padding-bottom: calc(env(safe-area-inset-bottom) + 14px)">
+      <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-primary btn-xl">סיום הפעלה</button></div>
     </div>`;
   $("#btn-end", root).onclick = () => { state.closing = true; mountPostCheck(root, v); };
 }
@@ -810,21 +819,20 @@ function mountPostCheck(root, v) {
   Object.assign(v, { mode: "close", opId: op.id });
   const checks = {};
   root.innerHTML = `
-    <div class="flex items-center justify-between gap-2 mb-3">
-      <div>
-        <h1 class="text-2xl font-black">סגירה</h1>
-        <p class="text-slate-500">${esc(op.craneKind || "מנוף")} <b>${esc(op.craneId)}</b> · ${since(op.startTime, "font-bold")}</p>
-      </div>
-      <button type="button" id="btn-all-done" class="btn btn-success btn-sm">✓ הכל בוצע</button>
+    <h1 class="page-title">סגירת הפעלה</h1>
+    <p class="text-muted mt-1 mb-5">${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}, ${since(op.startTime, "font-semibold text-ink")}</p>
+    <div class="flex items-center justify-between px-1 mb-2">
+      <span class="text-sm font-semibold text-muted">לפני שעוזבים את הכלי</span>
+      <button type="button" id="btn-all-done" class="btn btn-success btn-sm">${ICONS.check} הכל בוצע</button>
     </div>
-    <section class="space-y-2" id="post-list">
+    <section class="group-list" id="post-list">
       ${POST_ITEMS.map(([k, l]) => `
-        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">✓</span><span>${l}</span></button>`).join("")}
+        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">${ICONS.check}</span><span>${l}</span></button>`).join("")}
     </section>
-    <textarea id="f-notes" class="inp mt-3 min-h-[80px]" placeholder="הערות (לא חובה)"></textarea>
+    <textarea id="f-notes" class="inp mt-4 min-h-[90px] bg-white" placeholder="הערות (לא חובה)"></textarea>
     <div class="sticky bottom-3 mt-4 grid grid-cols-3 gap-2">
-      <button id="btn-back" class="btn btn-ghost py-5 rounded-2xl shadow-lg">חזרה</button>
-      <button id="btn-sign" class="btn btn-primary btn-xl col-span-2">✍ סגור הפעלה</button>
+      <button id="btn-back" class="btn btn-xl bg-white text-ink">חזרה</button>
+      <button id="btn-sign" class="btn btn-primary btn-xl col-span-2 shadow-lg shadow-ink/20">סגור הפעלה</button>
     </div>`;
   window.scrollTo(0, 0);
   const setChk = (b, on) => { checks[b.dataset.chk] = on; b.setAttribute("aria-pressed", String(on)); };
@@ -861,7 +869,7 @@ function mountPostCheck(root, v) {
     } catch (err) {
       toast(errMsg(err), "error");
       btn.disabled = false;
-      btn.textContent = "✍ סגור הפעלה";
+      btn.textContent = "סגור הפעלה";
     }
   };
 }
@@ -879,8 +887,8 @@ function issueChips(pc = {}) {
 const opLevel = (op) => api.analyzePreCheck(op.preCheck || {}).level;
 const hasIssues = (op) => !!opLevel(op);
 const LEVEL_BADGE = {
-  critical: `<span class="badge badge-crit">🚨 חמורה</span>`,
-  warning: `<span class="badge badge-warn">⚠️ ראשונית</span>`,
+  critical: `<span class="badge badge-crit">חמורה</span>`,
+  warning: `<span class="badge badge-warn">ראשונית</span>`,
 };
 const opStatusBadge = (op) => (op.status === "active"
   ? `<span class="badge badge-warn"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>פעיל</span>`
@@ -902,8 +910,8 @@ function drawAlerts(el, ops) {
   const list = ops.filter(hasIssues).sort((a, b) => rank[opLevel(a)] - rank[opLevel(b)]);
   const nCrit = list.filter((o) => opLevel(o) === "critical").length;
   el.innerHTML = list.length ? `
-    <section class="card border-r-4 border-r-red-500 mb-6">
-      <h2 class="text-lg font-black text-slate-900 mb-3 flex flex-wrap items-center gap-2">🚨 התראות ופערים
+    <section class="card mb-6 ring-1 ring-[#B42318]/15">
+      <h2 class="text-lg font-black text-slate-900 mb-3 flex flex-wrap items-center gap-2">התראות
         ${nCrit ? `<span class="badge badge-crit">${nCrit} חמורות</span>` : ""}
         ${list.length - nCrit ? `<span class="badge badge-warn">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
       <div class="grid gap-3 md:grid-cols-2">
@@ -975,7 +983,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
           </div>
           ${hasIssues(op) ? `<div class="flex flex-wrap gap-1.5 mt-2">${issueChips(op.preCheck)}</div>` : ""}
           <div class="mt-1">${postCheckSummary(op)}</div>
-          ${op.postCheck?.notes ? `<div class="text-sm bg-slate-50 rounded-lg p-2 mt-2">📝 ${esc(op.postCheck.notes)}</div>` : ""}
+          ${op.postCheck?.notes ? `<div class="text-sm bg-slate-50 rounded-lg p-2 mt-2">${esc(op.postCheck.notes)}</div>` : ""}
         </div>`).join("")}
     </div>
     <div class="hidden md:block card !p-0 overflow-x-auto">
@@ -1077,20 +1085,20 @@ function drawValidity(el, cranes, operators) {
   const badOps = (operators || []).filter(licenseBad);
   if (!badCranes.length && !badOps.length) { el.innerHTML = ""; return; }
   el.innerHTML = `
-    <section class="card border-r-4 border-r-amber-400 mb-6">
-      <h2 class="text-lg font-black text-slate-900 mb-3">📄 תוקף תסקירים ורישיונות</h2>
+    <section class="card mb-6">
+      <h2 class="text-lg font-black text-slate-900 mb-3">תוקף תסקירים ורישיונות</h2>
       <div class="grid gap-4 ${operators ? "md:grid-cols-2" : ""}">
         ${badCranes.length ? `<div>
           <div class="font-bold text-slate-700 mb-2">כלים (${badCranes.length})</div>
           <div class="space-y-2">${badCranes.map((c) => `
-            <div class="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="py-2.5 border-b border-slate-100 last:border-0 flex flex-wrap items-center justify-between gap-2">
               <span><b>${esc(api.unitName(c))}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
               ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
             </div>`).join("")}</div></div>` : ""}
         ${badOps.length ? `<div>
           <div class="font-bold text-slate-700 mb-2">מנופאים (${badOps.length})</div>
           <div class="space-y-2">${badOps.map((u) => `
-            <div class="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="py-2.5 border-b border-slate-100 last:border-0 flex flex-wrap items-center justify-between gap-2">
               <span><b>${esc(u.name)}</b> <span class="text-xs text-slate-500">${esc(u.assignedSite)}</span></span>
               <span class="flex flex-wrap gap-1">${licenseBadges(u)}</span>
             </div>`).join("")}</div></div>` : ""}
@@ -1124,7 +1132,7 @@ function renderAdmin() {
         שתף בוואטסאפ
       </button>
     </div>
-    <nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom)" role="tablist">
+    <nav class="fixed bottom-0 inset-x-0 z-30 bg-white/85 backdrop-blur-xl border-t border-ink/5" style="padding-bottom: env(safe-area-inset-bottom)" role="tablist">
       <div class="max-w-6xl mx-auto grid grid-cols-5">
         <button class="tab" data-tab="overview" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h4v8H3zM10 3h4v18h-4zM17 8h4v13h-4z"/></svg><span>מצב</span></button>
         <button class="tab relative" data-tab="users" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg><span>משתמשים</span><span id="tab-pending-cnt" class="absolute top-1 right-[calc(50%-22px)]"></span></button>
@@ -1144,7 +1152,7 @@ function renderAdmin() {
     <section data-panel="cranes" hidden>
       <div class="card mb-3 flex flex-wrap items-center gap-3">
         <div id="data-status" class="flex-1 text-sm text-slate-600">טוען נתונים ממערכת הציוד…</div>
-        <button type="button" id="btn-sync" class="btn btn-dark btn-sm">🔄 סנכרן ממערכת הציוד</button>
+        <button type="button" id="btn-sync" class="btn btn-dark btn-sm">סנכרן מאתר התסקירים</button>
       </div>
       <p class="text-xs text-slate-500 mb-4">הכלים נלקחים אוטומטית מאתר התסקירים בלבד. כדי להוסיף כלי, מוסיפים אותו שם. כלי שהוסר משם לא יהיה זמין להפעלה.</p>
       <div id="crane-list">${spinner}</div>
@@ -1185,7 +1193,7 @@ function renderAdmin() {
   const drawStatus = () => {
     const el = $("#data-status");
     if (!el) return;
-    if (v.legacyErr) { el.innerHTML = `<span class="text-red-700">⚠️ לא ניתן לקרוא נתונים ממערכת הציוד: ${esc(v.legacyErr)}</span>`; return; }
+    if (v.legacyErr) { el.innerHTML = `<span class="text-red-700">לא ניתן לקרוא נתונים ממערכת הציוד: ${esc(v.legacyErr)}</span>`; return; }
     if (!v.equipment) { el.textContent = "טוען נתונים ממערכת הציוד…"; return; }
     const rel = v.equipment.filter((e) => api.isRelevantType(e.type)).length;
     const types = [...new Set(v.equipment.map((e) => api.fixTypeName(e.type) || "ללא סוג"))].join(", ");
@@ -1220,7 +1228,7 @@ function renderAdmin() {
     $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold">${pending.length}</span>` : "";
     $("#pending-banner").innerHTML = pending.length ? `
       <button class="w-full text-right rounded-2xl bg-white border border-slate-200 px-4 py-3 mb-4 font-bold text-slate-800 flex items-center gap-2" id="go-pending">
-        🔔 ${pending.length === 1 ? "בקשת הרשאה אחת ממתינה" : `${pending.length} בקשות הרשאה ממתינות`} לאישור <span class="mr-auto underline">לטיפול ←</span>
+        <span class="w-2 h-2 rounded-full bg-[#B42318]"></span> ${pending.length === 1 ? "בקשת הרשאה אחת ממתינה" : `${pending.length} בקשות הרשאה ממתינות`} לאישור <span class="mr-auto text-muted">לטיפול</span>
       </button>` : "";
     $("#go-pending")?.addEventListener("click", () => setTab("users"));
     drawUsersPanel(usersPanel, v);
@@ -1451,7 +1459,7 @@ function mountHistory(panel) {
       <label class="flex items-center gap-2 font-bold text-sm py-2"><input type="checkbox" name="issues" class="w-5 h-5 accent-red-600"> רק עם ליקויים</label>
       <div class="sm:col-span-3 lg:col-span-6 flex gap-2">
         <button class="btn btn-dark btn-sm">חפש</button>
-        <button type="button" id="h-csv" class="btn btn-ghost btn-sm" disabled>⬇ ייצוא ל-Excel (CSV)</button>
+        <button type="button" id="h-csv" class="btn btn-ghost btn-sm" disabled>ייצוא ל-Excel</button>
         <span id="h-count" class="self-center text-sm text-slate-500 mr-auto"></span>
       </div>
     </form>
@@ -1549,22 +1557,22 @@ function mountAlertSettings(panel) {
   panel.innerHTML = `
     <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
       ${isDeveloper() ? `<div class="card">
-        <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
+        <h2 class="sec-title !mb-1">ההתראות שלי</h2>
         <div class="rounded-xl bg-slate-50 border border-slate-200 text-slate-800 p-4 mt-3">
           <div class="font-extrabold">חשבון מפתח</div>
           <p class="text-sm mt-1">לחשבון זה הרשאות מלאות, אבל הוא לא מקבל התראות. ההתראות נשלחות למנהל המערך (${esc(ADMIN_EMAILS.join(", "))}) לפי ההגדרות שלו.</p>
         </div>
         <div class="font-bold text-slate-700 mt-4 mb-2">בדיקת התראות (נשלחות רק אליך)</div>
         <div class="grid grid-cols-2 gap-2">
-          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="critical">🚨 חמורה במסך</button>
-          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="warning">⚠️ ראשונית במסך</button>
-          <button type="button" class="btn btn-dark btn-sm" data-sample-push="critical">📱 חמורה לטלפון</button>
-          <button type="button" class="btn btn-dark btn-sm" data-sample-push="digest">📱 סיכום בוקר לטלפון</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="critical">חמורה במסך</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-sample-local="warning">ראשונית במסך</button>
+          <button type="button" class="btn btn-dark btn-sm" data-sample-push="critical">חמורה לטלפון</button>
+          <button type="button" class="btn btn-dark btn-sm" data-sample-push="digest">סיכום בוקר לטלפון</button>
         </div>
         <p class="text-xs text-slate-500 mt-2">"לטלפון" רושם את המכשיר הזה ושולח דרך השרת. ההתראה מגיעה גם כשהאפליקציה סגורה, אחרי שמתקינים אותה ומאשרים התראות.</p>
       </div>` : ""}
       <form id="np-form" class="card" ${isDeveloper() ? "hidden" : ""}>
-        <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
+        <h2 class="sec-title !mb-1">ההתראות שלי</h2>
         <p class="text-sm text-slate-500 mb-2">מתי ואיך אתה מקבל התראה על הפעלה חדשה עם ליקויים.</p>
         <div class="divide-y divide-slate-100">
           ${switchInput("enabled", prefs.enabled, "לקבל התראות")}
@@ -1578,7 +1586,7 @@ function mountAlertSettings(panel) {
                 </label>`).join("")}
             </div>
           </div>
-          ${switchInput("push", prefs.push, "📱 התראות לטלפון — גם כשהאתר סגור", `<span id="np-perm">בודק תמיכה במכשיר…</span>`)}
+          ${switchInput("push", prefs.push, "התראות לטלפון, גם כשהאפליקציה סגורה", `<span id="np-perm">בודק תמיכה במכשיר…</span>`)}
           ${switchInput("sound", prefs.sound, "צליל התראה", "צפצוף אחד לראשונית, שלושה לחמורה")}
         </div>
         <p class="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-2">ההתראות לטלפון נרשמות לכל מכשיר בנפרד — יש להפעיל אותן בכל טלפון/מחשב שבו תרצה לקבל התראות. באייפון: קודם להוסיף את האתר למסך הבית.</p>
@@ -1589,18 +1597,18 @@ function mountAlertSettings(panel) {
       </form>
 
       <form id="as-form" class="card">
-        <h2 class="sec-title !mb-1">📏 מדדי התראה</h2>
+        <h2 class="sec-title !mb-1">מדדי התראה</h2>
         <p class="text-sm text-slate-500 mb-1">חל על כל המערכת: קובע מה נחשב התראה ראשונית ומה התראה חמורה בבדיקת הפתיחה.</p>
         <div id="as-meta" class="text-xs text-slate-400 mb-2"></div>
-        ${levelRow("fuel", "⛽ דלק", api.getAlertSettings().fuel)}
-        ${levelRow("urea", "💧 אוראה", api.getAlertSettings().urea)}
+        ${levelRow("fuel", "דלק", api.getAlertSettings().fuel)}
+        ${levelRow("urea", "אוראה", api.getAlertSettings().urea)}
         <div class="pt-4">
           <div class="font-extrabold text-lg mb-1">ממצא "לא תקין"</div>
           <p class="text-xs text-slate-500 mb-2">איזו התראה נוצרת כשהמפעיל מסמן פריט כלא תקין</p>
           <div id="as-checks"></div>
         </div>
         <div class="pt-5 mt-4 border-t border-slate-200">
-          <div class="font-extrabold text-lg mb-1">📄 תוקף תסקיר ורישיון</div>
+          <div class="font-extrabold text-lg mb-1">תוקף תסקיר ורישיון</div>
           <p class="text-xs text-slate-500 mb-2">נבדק בכל פתיחת הפעלה מול המערכת הקיימת: תסקיר (המוקדם מבין nextCheck ו-btNext) מרשומת הציוד, ורישיונות מרשומת המנופאי.</p>
           ${[["inspection", "תסקיר מנוף"], ["license", "רישיון מנופאי"]].map(([k, l]) => `
             <div class="py-3 border-b border-slate-100 last:border-0" data-valid="${k}">
@@ -1622,7 +1630,7 @@ function mountAlertSettings(panel) {
             </div>`).join("")}
         </div>
         <div class="pt-5 mt-4 border-t border-slate-200">
-          <div class="font-extrabold text-lg mb-1">🏗️ סוגי כלים במערכת</div>
+          <div class="font-extrabold text-lg mb-1">סוגי כלים במערכת</div>
           <p class="text-xs text-slate-500 mb-2">רק כלים מהסוגים המסומנים יופיעו בבחירה מתוך מערכת הציוד. ברירת המחדל: מנופים ומלגזות.</p>
           <div id="as-types" class="flex flex-wrap gap-x-4 gap-y-2 text-sm">${spinner}</div>
         </div>

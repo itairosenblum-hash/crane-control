@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082306";
+import { db } from "./auth.js?v=202611082314";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082306";
+import { DEFAULTS } from "./config.js?v=202611082314";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -97,7 +97,7 @@ export function saveAlertSettings(data, updatedBy) {
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082306");
+  const { app } = await import("./auth.js?v=202611082314");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }

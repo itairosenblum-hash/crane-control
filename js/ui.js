@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082320";
-import * as api from "./firestore.js?v=202611082320";
-import * as push from "./push.js?v=202611082320";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082320";
+import { login, logout, onAuth } from "./auth.js?v=202611082323";
+import * as api from "./firestore.js?v=202611082323";
+import * as push from "./push.js?v=202611082323";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082323";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };

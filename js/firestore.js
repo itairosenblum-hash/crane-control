@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082320";
+import { db } from "./auth.js?v=202611082323";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082320";
+import { DEFAULTS } from "./config.js?v=202611082323";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -109,7 +109,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082320");
+  const { app } = await import("./auth.js?v=202611082323");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -264,7 +264,6 @@ export const deleteCrane = (id) => deleteDoc(doc(db, "cranes", id));
 
 // ---------- סוגי כלים: מנופים ומלגזות ----------
 const RELEVANT_RE = /מנוף|מלגז|טלסקופ|crane|forklift|telehandler/i;
-const TELE_RE = /טלסקופ|telehandler/i;
 /** מתקן שגיאת כתיב נפוצה בסוגי הציוד ("מעמיק טלסקופי" → "מעמיס טלסקופי") — לתצוגה בלבד */
 export const fixTypeName = (t) => String(t || "").replace(/מעמיק(\s*טלסקופ)/g, "מעמיס$1");
 /** האם סוג הציוד רלוונטי למערכת (לפי בחירת המנהל, או כברירת מחדל — מנופים ומלגזות) */
@@ -273,8 +272,8 @@ export function isRelevantType(type, s = alertSettings) {
   return s.equipmentTypes ? s.equipmentTypes.includes(t) : RELEVANT_RE.test(t);
 }
 export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
-/** "מלגזה" או "מנוף" לפי סוג הציוד */
-export const kindOf = (type) => (TELE_RE.test(String(type || "")) ? "מעמיס טלסקופי" : /מלגז|forklift/i.test(String(type || "")) ? "מלגזה" : "מנוף");
+/** שם הסוג המלא כפי שרשום באתר התסקירים (למשל "מלגזה 5 טון"), או "מנוף" כשאין סוג */
+export const kindOf = (type) => fixTypeName(type).trim() || "מנוף";
 /** שם תצוגה לכלי: "מנוף 7206179" / "מלגזה 8812044" */
 export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${x?.craneId ?? ""}`.trim();
 

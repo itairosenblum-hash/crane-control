@@ -53,7 +53,12 @@
   - **באנדרואיד:** אפשר ישירות מ-Chrome. מומלץ להתקין דרך התפריט ⋮ ← "התקנת אפליקציה".
 - **זהות האפליקציה המותקנת** היא `/crane-control/`, נפרדת מכל אפליקציה אחרת באותו דומיין.
 
-### התקנת הפונקציות בשרת (פעם אחת, ושוב רק כשמשנים את `functions/`)
+### התקנה אוטומטית (GitHub Actions)
+בכל שינוי בתיקייה `functions/` הפונקציות מותקנות אוטומטית בשרת, דרך `.github/workflows/deploy-functions.yml`. ההתקנה כוללת רק את קבוצת הפונקציות `crane-control`, ובלי `--force`.
+- **דרישה:** Secret בריפו בשם `FIREBASE_SERVICE_ACCOUNT`, עם אותו קובץ JSON של חשבון השירות שמוגדר בריפו `crane`.
+- **הפעלה ידנית:** Actions ← Deploy Cloud Functions ← Run workflow.
+
+### התקנה ידנית (Cloud Shell), כגיבוי
 1. פותחים את [Google Cloud Shell](https://shell.cloud.google.com/?show=terminal), מחוברים עם החשבון שהוא בעלים של הפרויקט.
 2. מדביקים ומריצים:
    ```bash

@@ -35,6 +35,13 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ---------- אפליקציית הציוד הקיימת (equipment) ----------
+    // נשמרת הגישה כפי שהייתה (פתוחה לכולם) כדי לא לשבור את האפליקציה הקיימת.
+    // מומלץ לסגור בהמשך — ראה README.
+    match /equipment/{document=**} {
+      allow read, write: if true;
+    }
+
     // ---------- הגדרות מערכת (מדדי התראה) ----------
     match /settings/{id} {
       allow read: if approved();

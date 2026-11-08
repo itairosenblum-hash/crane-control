@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082251";
-import * as api from "./firestore.js?v=202611082251";
-import * as push from "./push.js?v=202611082251";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082251";
+import { login, logout, onAuth } from "./auth.js?v=202611082300";
+import * as api from "./firestore.js?v=202611082300";
+import * as push from "./push.js?v=202611082300";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082300";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -524,8 +524,11 @@ function renderOperator() {
   const root = $("#op-root");
   const v = { cranes: [], op: undefined, mode: null, opId: null, selected: null, toggles: {}, levels: {} };
 
+  let synced = false;
   track(api.watchCranes(p.assignedSite, (list) => {
     v.cranes = list;
+    // רענון תאריכי התסקיר מאתר התסקירים בכל כניסה (עדכון שם מופיע כאן מיד)
+    if (!synced && !state.viewAs) { synced = true; api.syncCraneInspections(list); }
     if (v.mode === "pick") drawPick(root, v);
     if (v.mode === "check" && !v.submitting && v.started !== v.selected && !v.cranes.some((c) => c.id === v.selected && c.currentStatus === "available")) {
       toast(`${v.selected} כבר אינו פנוי — בחר כלי אחר`, "error");
@@ -553,8 +556,9 @@ function mountPick(root, v) {
   drawPick(root, v);
 }
 function drawPick(root, v) {
-  const avail = v.cranes.filter((c) => c.currentStatus === "available");
-  const busy = v.cranes.filter((c) => c.currentStatus !== "available");
+  const usable = v.cranes.filter((c) => c.equipmentId && !c.retired);
+  const avail = usable.filter((c) => c.currentStatus === "available");
+  const busy = usable.filter((c) => c.currentStatus !== "available");
   root.innerHTML = `
     <div class="flex items-center justify-between gap-2 mb-3">
       <h1 class="text-2xl font-black">בחר כלי</h1>
@@ -1022,7 +1026,7 @@ function mountDashboard(container, getSite, { notifyScope = "", getOperators = n
 
   let synced = false;
   track(api.watchCranes(null, (l) => {
-    v.cranes = l; rememberSites(l); draw();
+    v.cranes = l.filter((c) => !c.retired); rememberSites(v.cranes); draw();
     if (!synced) { synced = true; api.syncCraneInspections(l); } // רענון תאריכי תסקיר מאוסף הציוד
   }, onErr));
   track(api.watchActiveOperations((l) => { scan("active", l); v.active = l; draw(); }, onErr));
@@ -1103,7 +1107,7 @@ function renderAdmin() {
     <nav class="flex gap-1 overflow-x-auto bg-slate-200/70 rounded-2xl p-1 mb-5" role="tablist">
       <button class="tab" data-tab="overview" role="tab">📊 תמונת מצב</button>
       <button class="tab" data-tab="users" role="tab">👥 משתמשים <span id="tab-pending-cnt"></span></button>
-      <button class="tab" data-tab="cranes" role="tab">🏗️ מנופים ומלגזות</button>
+      <button class="tab" data-tab="cranes" role="tab">🏗️ כלים</button>
       <button class="tab" data-tab="history" role="tab">🗂️ היסטוריה</button>
       <button class="tab" data-tab="alerts" role="tab">🔔 הגדרות התראות</button>
     </nav>
@@ -1120,13 +1124,7 @@ function renderAdmin() {
         <div id="data-status" class="flex-1 text-sm text-slate-600">טוען נתונים ממערכת הציוד…</div>
         <button type="button" id="btn-sync" class="btn btn-dark btn-sm">🔄 סנכרן ממערכת הציוד</button>
       </div>
-      <form id="crane-add" class="card mb-5 grid gap-3 sm:grid-cols-[1.4fr_1fr_1fr_auto] items-end">
-        <div><label class="lbl" for="ca-eq">כלי מתוך מערכת הציוד (צ')</label>
-          <select id="ca-eq" class="inp" data-eq-select><option value="">טוען רשימת ציוד…</option></select></div>
-        <div><label class="lbl" for="ca-id">מספר כלי (צ')</label><input id="ca-id" class="inp" required placeholder="לדוגמה: 14"></div>
-        <div><label class="lbl" for="ca-site">אתר / רציף</label><input id="ca-site" class="inp" required list="sites-list" placeholder="שם האתר"></div>
-        <button class="btn btn-primary h-[52px]">+ הוסף כלי</button>
-      </form>
+      <p class="text-xs text-slate-500 mb-4">הכלים נלקחים אוטומטית מאתר התסקירים בלבד. כדי להוסיף כלי, מוסיפים אותו שם. כלי שהוסר משם לא יהיה זמין להפעלה.</p>
       <div id="crane-list">${spinner}</div>
     </section>
     <section data-panel="history" hidden></section>
@@ -1208,16 +1206,9 @@ function renderAdmin() {
   usersPanel.addEventListener("click", (e) => handleUserAction(e, v));
 
   // --- מנופים
-  const eqOptions = (selected = "") => !v.equipment
-    ? `<option value="">טוען רשימת ציוד…</option>`
-    : `<option value="">— ללא קישור —</option>${v.equipment.filter((e) => e.id === selected || api.isRelevantType(e.type)).map((e) => {
-        const used = v.cranes.find((c) => c.equipmentId === e.id);
-        return `<option value="${esc(e.id)}" ${e.id === selected ? "selected" : ""}>${esc(api.equipmentLabel(e))} · תסקיר עד ${api.fmtDateStr(e.nextInspectionDate)}${used && e.id !== selected ? ` (מקושר ל${esc(api.unitName(used))})` : ""}</option>`;
-      }).join("")}`;
   function drawCranes() {
     if (!v.cranes) return;
-    drawCraneList($("#crane-list"), v.cranes, eqOptions);
-    $("#ca-eq").innerHTML = eqOptions($("#ca-eq").value);
+    drawCraneList($("#crane-list"), v.cranes);
     drawStatus();
   }
   track(api.watchCranes(null, (list) => {
@@ -1235,28 +1226,7 @@ function renderAdmin() {
     await runSync(true);
     e.currentTarget.disabled = false;
   };
-  $("#ca-eq").onchange = () => {
-    const e = v.equipment?.find((x) => x.id === $("#ca-eq").value);
-    if (!e) return;
-    $("#ca-id").value = e.tz;
-    const sid = String(e.siteId ?? "").trim();
-    const site = sid && v.sites?.find((x) => String(x.id) === sid || String(x.fieldId ?? "") === sid || String(parseInt(x.fieldId)) === String(parseInt(sid)));
-    if (site) $("#ca-site").value = site.name;
-    else if (sid) toast(`לכלי מוגדר אתר (${sid}) שלא נמצא ברשימת האתרים. יש להזין אתר ידנית`, "error");
-  };
-  $("#crane-add").onsubmit = async (e) => {
-    e.preventDefault();
-    const id = $("#ca-id").value.trim();
-    const site = $("#ca-site").value.trim();
-    if (!id || !site) return toast("יש למלא מזהה ואתר", "error");
-    const equipment = v.equipment?.find((x) => x.id === $("#ca-eq").value) || null;
-    try {
-      await api.addCrane({ craneId: id, site, equipment });
-      toast(`${id} נוסף`, "success");
-      $("#ca-id").value = ""; $("#ca-eq").value = "";
-    } catch (err) { onErr(err); }
-  };
-  $("#crane-list").addEventListener("click", (e) => handleCraneAction(e, v));
+  $("#crane-list").addEventListener("change", handleCraneAction);
 
   // --- היסטוריה
   mountHistory($('[data-panel="history"]'));
@@ -1396,65 +1366,50 @@ async function handleUserAction(e, v) {
 }
 
 // ----- ניהול מנופים -----
-function drawCraneList(el, cranes, eqOptions) {
-  if (!cranes.length) { el.innerHTML = `<div class="card">${empty("עדיין לא הוגדרו מנופים")}</div>`; return; }
+function drawCraneList(el, cranes) {
+  if (!cranes.length) { el.innerHTML = `<div class="card">${empty("לא נמצאו מנופים או מלגזות באתר התסקירים")}</div>`; return; }
+  const active = cranes.filter((c) => !c.retired);
+  const retired = cranes.filter((c) => c.retired);
   const bySite = {};
-  cranes.forEach((c) => { (bySite[c.site || "ללא אתר"] ||= []).push(c); });
+  active.forEach((c) => { (bySite[c.site || "ללא אתר"] ||= []).push(c); });
   el.innerHTML = Object.keys(bySite).sort().map((site) => `
     <section class="mb-5">
       <h3 class="font-black text-slate-700 mb-2">${esc(site)} <span class="text-slate-400 font-bold text-sm">(${bySite[site].length})</span></h3>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         ${bySite[site].map((c) => {
           const inUse = c.currentStatus === "in_use";
           return `
           <div class="card !p-3" data-crane-id="${esc(c.id)}">
-            <div class="flex items-center justify-between mb-2">
-              <div class="text-xl font-black">${esc(c.craneId)}</div>
-              <span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label || esc(c.currentStatus)}</span>
+            <div class="flex items-center justify-between gap-2">
+              <div><span class="text-xs font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span> <span class="text-xl font-black">${esc(c.craneId)}</span></div>
+              ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
             </div>
-            <div class="mb-2 flex flex-wrap items-center gap-1.5">
-              ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
-              ${c.equipmentLabel ? `<span class="text-xs text-slate-500">${esc(c.equipmentLabel)}</span>` : ""}
+            ${c.equipmentLabel ? `<div class="text-xs text-slate-500 mt-1">${esc(c.equipmentLabel)}</div>` : ""}
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-sm font-bold text-slate-600">זמינות:</span>
+              ${inUse ? `<span class="badge ${CRANE_STATUS.in_use.cls}">בהפעלה</span>` : `
+              <select class="inp-sm !w-auto flex-1" name="status" aria-label="זמינות">
+                ${["available", "maintenance"].map((st) => `<option value="${st}" ${st === c.currentStatus ? "selected" : ""}>${CRANE_STATUS[st].label}</option>`).join("")}
+              </select>`}
             </div>
-            <select class="inp-sm mb-2" name="equipment" ${inUse ? "disabled" : ""} aria-label="רשומת ציוד">${eqOptions(c.equipmentId || "")}</select>
-            <div class="grid grid-cols-2 gap-2">
-              <input class="inp-sm" name="site" list="sites-list" value="${esc(c.site)}" ${inUse ? "disabled" : ""} aria-label="אתר">
-              <select class="inp-sm" name="status" ${inUse ? "disabled" : ""} aria-label="סטטוס">
-                ${inUse ? `<option>בהפעלה</option>` : ["available", "maintenance"].map((s) => `<option value="${s}" ${s === c.currentStatus ? "selected" : ""}>${CRANE_STATUS[s].label}</option>`).join("")}
-              </select>
-            </div>
-            <div class="flex gap-2 mt-2">
-              <button class="btn btn-dark btn-sm flex-1" data-cact="save" ${inUse ? "disabled" : ""}>שמור</button>
-              <button class="btn btn-ghost btn-sm text-red-700" data-cact="delete" ${inUse ? "disabled" : ""}>מחק</button>
-            </div>
-            ${inUse ? `<div class="text-xs text-slate-500 mt-2">לא ניתן לערוך מנוף בזמן הפעלה</div>` : ""}
           </div>`;
         }).join("")}
       </div>
-    </section>`).join("");
+    </section>`).join("") + (retired.length ? `
+    <section class="mb-5 opacity-70">
+      <h3 class="font-black text-slate-500 mb-2">לא קיימים באתר התסקירים (${retired.length})</h3>
+      <div class="flex flex-wrap gap-2">${retired.map((c) => `<span class="badge bg-slate-200 text-slate-600">${esc(c.craneId)} · ${esc(c.site || "")}</span>`).join("")}</div>
+      <p class="text-xs text-slate-500 mt-1">כלים אלה לא זמינים להפעלה. הם נשמרים רק לצורך ההיסטוריה.</p>
+    </section>` : "");
 }
 
-async function handleCraneAction(e, v) {
-  const b = e.target.closest("[data-cact]");
-  if (!b) return;
-  const card = b.closest("[data-crane-id]");
-  const id = card.dataset.craneId;
+async function handleCraneAction(e) {
+  const sel = e.target.closest("select[name=status]");
+  if (!sel || e.type !== "change") return;
+  const id = sel.closest("[data-crane-id]").dataset.craneId;
   try {
-    if (b.dataset.cact === "save") {
-      const site = $("[name=site]", card).value.trim();
-      if (!site) return toast("יש להזין אתר", "error");
-      await api.updateCrane(id, { site, currentStatus: $("[name=status]", card).value });
-      const crane = v.cranes.find((c) => c.id === id);
-      const eqId = $("[name=equipment]", card).value;
-      if (v.equipment && eqId !== (crane?.equipmentId || "")) {
-        await api.linkCraneEquipment(id, v.equipment.find((x) => x.id === eqId) || null);
-      }
-      toast(`${id} עודכן`, "success");
-    } else if (b.dataset.cact === "delete") {
-      if (!(await confirmDialog({ title: `מחיקת ${id}`, html: "הכלי יוסר מהמערכת. היסטוריית ההפעלות שלו תישמר.", confirmText: "מחק", danger: true }))) return;
-      await api.deleteCrane(id);
-      toast("המנוף נמחק");
-    }
+    await api.updateCrane(id, { currentStatus: sel.value });
+    toast(sel.value === "maintenance" ? `${id} הושבת` : `${id} זמין להפעלה`, "success");
   } catch (err) { onErr(err); }
 }
 

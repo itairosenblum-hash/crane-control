@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082251";
+import { db } from "./auth.js?v=202611082300";
 import {
   collection, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082251";
+import { DEFAULTS } from "./config.js?v=202611082300";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -97,7 +97,7 @@ export function saveAlertSettings(data, updatedBy) {
 /** שולח התראת בדיקה לכל המכשירים הרשומים של המשתמש (Cloud Function) */
 export async function sendTestPush(sample = "test") {
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082251");
+  const { app } = await import("./auth.js?v=202611082300");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -329,8 +329,10 @@ export function siteNameFor(siteId, sites = []) {
  * מחזיר { added, updated, skipped }.
  */
 export async function syncCranesFromEquipment(equipment, sites, cranes) {
-  let added = 0, updated = 0, skipped = 0;
-  for (const eq of equipment.filter((e) => isRelevantType(e.type))) {
+  let added = 0, updated = 0, skipped = 0, retired = 0;
+  const relevant = equipment.filter((e) => isRelevantType(e.type));
+  const relevantIds = new Set(relevant.map((e) => e.id));
+  for (const eq of relevant) {
     const site = siteNameFor(eq.siteId, sites);
     const fields = { equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), equipmentType: eq.type || null, inspectionUntil: eq.nextInspectionDate || null };
     const linked = cranes.find((c) => c.equipmentId === eq.id);
@@ -339,6 +341,7 @@ export async function syncCranesFromEquipment(equipment, sites, cranes) {
         const patch = {};
         for (const [k, val] of Object.entries(fields)) if ((linked[k] ?? null) !== val) patch[k] = val;
         if (site && linked.site !== site && linked.currentStatus !== "in_use") patch.site = site;
+        if (linked.retired) patch.retired = false;
         if (Object.keys(patch).length) { await updateDoc(doc(db, COL.cranes, linked.id), { ...patch, updatedAt: serverTimestamp() }); updated++; }
         continue;
       }
@@ -347,13 +350,19 @@ export async function syncCranesFromEquipment(equipment, sites, cranes) {
       if (existing && existing.equipmentId) { skipped++; continue; } // אותו מספר כבר מקושר לרשומה אחרת
       await setDoc(doc(db, COL.cranes, id), {
         craneId: id, ...fields,
+        retired: false,
         ...(existing ? {} : { site, currentStatus: "available", activeOperationId: null, createdAt: serverTimestamp(), autoImported: true }),
         updatedAt: serverTimestamp(),
       }, { merge: true });
       existing ? updated++ : added++;
     } catch (e) { console.warn("sync failed", eq.id, e); skipped++; }
   }
-  return { added, updated, skipped };
+  // כלים שאינם (עוד) מנוף/מלגזה קיים באתר התסקירים — מסומנים כלא זמינים
+  for (const c of cranes) {
+    if (c.retired || (c.equipmentId && relevantIds.has(c.equipmentId)) || c.currentStatus === "in_use") continue;
+    try { await updateDoc(doc(db, COL.cranes, c.id), { retired: true, updatedAt: serverTimestamp() }); retired++; } catch (e) { console.warn(e); }
+  }
+  return { added, updated, skipped, retired };
 }
 
 /** מרענן את עותק תאריכי הרישיון על המשתמשים מתוך רשומות המנופאים */
@@ -430,11 +439,11 @@ export async function startOperation({ craneId, uid, operatorName, site, preChec
     const crane = c.data();
     if (crane.currentStatus !== "available") throw new AppError(`מנוף ${craneId} כבר אינו פנוי — בחר מנוף אחר`);
     // תאריך התסקיר נקרא ישירות מרשומת הציוד — המקור המעודכן ביותר
-    let inspectionUntil = crane.inspectionUntil || null;
-    if (crane.equipmentId) {
-      const e = await tx.get(doc(db, "equipment", crane.equipmentId));
-      inspectionUntil = e.exists() ? equipmentInspectionDate(e.data()) : null;
-    }
+    // הכלי חייב להיות קיים באתר התסקירים
+    if (!crane.equipmentId || crane.retired) throw new AppError("הכלי לא קיים באתר התסקירים ולא ניתן להפעיל אותו");
+    const e = await tx.get(doc(db, "equipment", crane.equipmentId));
+    if (!e.exists() || !isRelevantType(e.data().type || e.data().equipmentType)) throw new AppError("הכלי הוסר מאתר התסקירים ולא ניתן להפעיל אותו");
+    const inspectionUntil = equipmentInspectionDate(e.data());
     // תוקף הרישיונות נקרא ישירות מרשומת המנופאי
     let licenses = null;
     if (operatorRecordId) {

@@ -15,7 +15,7 @@
   "functions": [
     {
       "source": "functions",
-      "codebase": "default",
+      "codebase": "crane-control",
       "ignore": [
         "node_modules"
       ]

@@ -58,9 +58,11 @@
 1. פותחים את [Google Cloud Shell](https://shell.cloud.google.com/?show=terminal), מחוברים עם החשבון שהוא בעלים של הפרויקט.
 2. מדביקים ומריצים:
    ```bash
-   rm -rf crane-control && git clone https://github.com/itairosenblum-hash/crane-control && cd crane-control/functions && npm install && cd .. && npx -y firebase-tools@latest deploy --only functions --project cranes-a0759 --force
+   rm -rf crane-control && git clone https://github.com/itairosenblum-hash/crane-control && cd crane-control/functions && npm install && cd .. && npx -y firebase-tools@latest deploy --only functions:crane-control --project cranes-a0759
    ```
 3. אם מופיעה בקשת התחברות, מריצים `npx -y firebase-tools@latest login --no-localhost`, מאשרים בקישור שמופיע, ואז מריצים שוב את הפקודה מסעיף 2.
+
+> ⚠️ **לא להשתמש ב-`--force` ולא ב-`--only functions` בלי `:crane-control`.** הפונקציות של מערכת הציוד הקיימת (`scanCertificate`, מהריפו `crane`) נמצאות באותו פרויקט, בקבוצת הפונקציות `default`. פקודה רחבה מדי עלולה למחוק אותן, וגם הפריסה של מערכת הציוד עלולה למחוק את הפונקציות של המערכת הזו. בגלל זה הפונקציות של המערכת הזו מוגדרות בקבוצה נפרדת, `crane-control`, ומתקינים רק אותה.
 
 בהתקנה הראשונה Firebase מפעיל אוטומטית את השירותים הנדרשים (Cloud Functions, Cloud Build, Eventarc, Cloud Scheduler). זה יכול לקחת כמה דקות.
 העלות בפועל בהיקף כזה היא בערך ₪0, כי הכל בתוך המכסה החינמית של Blaze.

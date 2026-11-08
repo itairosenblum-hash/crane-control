@@ -9,7 +9,9 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./config.js";
 
-export const app = initializeApp(firebaseConfig);
+// שם אפליקציה נפרד: מערכת הציוד הקיימת (/crane/) רצה על אותו דומיין ואותו פרויקט —
+// כך ההתחברות של שתי המערכות נשמרת בנפרד ולא דורסת זו את זו.
+export const app = initializeApp(firebaseConfig, "crane-control");
 export const auth = getAuth(app);
 
 // מטמון מקומי — מאפשר טעינה מהירה ותצוגה גם בקליטה חלשה בשטח

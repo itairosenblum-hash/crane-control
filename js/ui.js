@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082303";
-import * as api from "./firestore.js?v=202611082303";
-import * as push from "./push.js?v=202611082303";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082303";
+import { login, logout, onAuth } from "./auth.js?v=202611082306";
+import * as api from "./firestore.js?v=202611082306";
+import * as push from "./push.js?v=202611082306";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082306";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -328,47 +328,67 @@ async function openViewAs() {
   root.innerHTML = `
     <div class="fixed inset-0 z-40 bg-slate-900/60 flex items-end sm:items-center justify-center p-4" data-close>
       <div class="bg-white rounded-2xl w-full max-w-md p-5 shadow-2xl max-h-[85vh] overflow-y-auto">
-        <h3 class="text-xl font-extrabold mb-1">👁️ תצוגה כמשתמש</h3>
-        <p class="text-sm text-slate-500 mb-4">רואים את האתר בדיוק כמו המשתמש. פעולות הן סימולציה ולא נשמרות.</p>
-        <div class="font-bold text-slate-700 mb-2">תפקיד לדוגמה</div>
-        <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
-          <select id="va-site" class="inp-sm">${[...knownSites].sort().map((s) => `<option>${esc(s)}</option>`).join("") || `<option value="">אין אתרים</option>`}</select>
-          <span></span>
-          <button class="btn btn-ghost btn-sm" data-va="operator">🕹️ מפעיל באתר הנבחר</button>
-          <button class="btn btn-ghost btn-sm" data-va="site_manager">📋 מנהל אתר</button>
+        <h3 class="text-xl font-extrabold mb-1">תצוגה כמשתמש</h3>
+        <p class="text-sm text-slate-500 mb-3">רואים את האתר בדיוק כמו המשתמש. פעולות הן סימולציה ולא נשמרות.</p>
+        <input id="va-q" class="inp-sm mb-3" placeholder="חיפוש מנופאי / אתר">
+        <div class="font-bold text-slate-700 mb-2">מנופאים מאתר התסקירים</div>
+        <div id="va-ops" class="space-y-3">${spinner}</div>
+        <div class="font-bold text-slate-700 mt-5 mb-2">מנהל אתר</div>
+        <div class="grid grid-cols-[1fr_auto] gap-2">
+          <select id="va-site" class="inp-sm"><option value="">כל האתרים</option>${[...knownSites].sort().map((x) => `<option>${esc(x)}</option>`).join("")}</select>
+          <button class="btn btn-ghost btn-sm" data-va="site_manager">צפה כמנהל אתר</button>
         </div>
-        <div class="font-bold text-slate-700 mt-4 mb-2">משתמש אמיתי</div>
-        <div id="va-users" class="space-y-1.5">${spinner}</div>
-        <button class="btn btn-ghost w-full mt-4" data-close-btn>ביטול</button>
+        <button class="btn btn-ghost w-full mt-5" data-close-btn>ביטול</button>
       </div>
     </div>`;
   const close = () => { root.innerHTML = ""; };
   $("[data-close]", root).onclick = (e) => { if (e.target.hasAttribute("data-close")) close(); };
   $("[data-close-btn]", root).onclick = close;
   const start = (viewAs) => { close(); state.viewAs = viewAs; state.closing = false; clearSubs(); route(); window.scrollTo(0, 0); };
-  $$("[data-va]", root).forEach((b) => {
-    b.onclick = () => {
-      const role = b.dataset.va;
-      const site = $("#va-site", root).value;
-      start({
-        uid: "preview-user",
-        label: `${ROLE_LABELS[role]}${site ? ` · ${site}` : ""} (לדוגמה)`,
-        profile: { name: role === "operator" ? "מפעיל לדוגמה" : "מנהל אתר לדוגמה", role, status: "approved", assignedSite: site, operatorRecordId: null, licenses: null },
+  $("[data-va=site_manager]", root).onclick = () => {
+    const site = $("#va-site", root).value;
+    start({ uid: "preview-user", label: `מנהל אתר · ${site || "כל האתרים"}`, profile: { name: "מנהל אתר", role: "site_manager", status: "approved", assignedSite: site } });
+  };
+
+  try {
+    const [ops, sites, users] = await Promise.all([
+      api.listOperators(), api.listSites(),
+      new Promise((res, rej) => { const u = api.watchUsers((l) => { u(); res(l); }, rej); }),
+    ]);
+    const rows = ops.map((o) => {
+      const site = api.siteNameFor(o.siteId, sites) || "ללא אתר";
+      const user = users.find((u) => u.operatorRecordId === o.id && u.status === "approved");
+      return { o, site, user };
+    });
+    const draw = () => {
+      const q = $("#va-q", root).value.trim();
+      const list = rows.filter((r) => !q || r.o.name.includes(q) || r.site.includes(q));
+      const bySite = {};
+      list.forEach((r) => { (bySite[r.site] ||= []).push(r); });
+      $("#va-ops", root).innerHTML = list.length ? Object.keys(bySite).sort((a, b) => a.localeCompare(b, "he")).map((site) => `
+        <div>
+          <div class="text-xs font-bold text-slate-500 mb-1">${esc(site)} (${bySite[site].length})</div>
+          <div class="space-y-1.5">${bySite[site].map((r) => `
+            <button class="w-full text-right rounded-xl border border-slate-200 px-3 py-2 hover:bg-slate-50 flex items-center justify-between gap-2" data-op="${esc(r.o.id)}">
+              <span class="font-bold">${esc(r.o.name)}</span>
+              <span class="text-xs ${r.user ? "text-emerald-700" : "text-slate-400"}">${r.user ? "רשום" : "טרם נרשם"}</span>
+            </button>`).join("")}</div>
+        </div>`).join("") : empty("לא נמצאו מנופאים");
+      $$("[data-op]", root).forEach((b) => {
+        const r = rows.find((x) => x.o.id === b.dataset.op);
+        b.onclick = () => start({
+          // אם המנופאי רשום — רואים את ההפעלה הפעילה שלו בפועל
+          uid: r.user?.id || `preview-op-${r.o.id}`,
+          label: `${r.o.name} · מפעיל · ${r.site}`,
+          profile: { name: r.o.name, role: "operator", status: "approved", assignedSite: r.user?.assignedSite || (r.site === "ללא אתר" ? "" : r.site), operatorRecordId: r.o.id, licenses: r.o.licenses },
+        });
       });
     };
-  });
-  const unsub = api.watchUsers((users) => {
-    unsub();
-    const list = users.filter((u) => u.status === "approved" && ["operator", "site_manager"].includes(u.role));
-    $("#va-users", root).innerHTML = list.length ? list.map((u) => `
-      <button class="w-full text-right rounded-xl border border-slate-200 px-3 py-2 hover:bg-slate-50" data-uid="${esc(u.id)}">
-        <b>${esc(u.name)}</b> <span class="text-xs text-slate-500">${ROLE_LABELS[u.role]}${u.assignedSite ? ` · ${esc(u.assignedSite)}` : ""}</span>
-      </button>`).join("") : empty("אין עדיין מפעילים או מנהלי אתר מאושרים");
-    $$("[data-uid]", root).forEach((b) => {
-      const u = list.find((x) => x.id === b.dataset.uid);
-      b.onclick = () => start({ uid: u.id, label: `${u.name} · ${ROLE_LABELS[u.role]}`, profile: u });
-    });
-  }, onErr);
+    $("#va-q", root).oninput = draw;
+    draw();
+  } catch (err) {
+    $("#va-ops", root).innerHTML = `<div class="text-sm text-red-700">${esc(errMsg(err))}</div>`;
+  }
 }
 
 // ---------- ניתוב ----------
@@ -1104,12 +1124,14 @@ function renderAdmin() {
         שתף בוואטסאפ
       </button>
     </div>
-    <nav class="flex gap-1 overflow-x-auto bg-slate-200/70 rounded-2xl p-1 mb-5" role="tablist">
-      <button class="tab" data-tab="overview" role="tab">📊 תמונת מצב</button>
-      <button class="tab" data-tab="users" role="tab">👥 משתמשים <span id="tab-pending-cnt"></span></button>
-      <button class="tab" data-tab="cranes" role="tab">🏗️ כלים</button>
-      <button class="tab" data-tab="history" role="tab">🗂️ היסטוריה</button>
-      <button class="tab" data-tab="alerts" role="tab">🔔 הגדרות התראות</button>
+    <nav class="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom)" role="tablist">
+      <div class="max-w-6xl mx-auto grid grid-cols-5">
+        <button class="tab" data-tab="overview" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h4v8H3zM10 3h4v18h-4zM17 8h4v13h-4z"/></svg><span>מצב</span></button>
+        <button class="tab relative" data-tab="users" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg><span>משתמשים</span><span id="tab-pending-cnt" class="absolute top-1 right-[calc(50%-22px)]"></span></button>
+        <button class="tab" data-tab="cranes" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5h3v16M2 21h10M7 5h13M7 9l4-4M20 5v6M18 11h4v3h-4z"/></svg><span>כלים</span></button>
+        <button class="tab" data-tab="history" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg><span>היסטוריה</span></button>
+        <button class="tab" data-tab="alerts" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0"/></svg><span>התראות</span></button>
+      </div>
     </nav>
     <section data-panel="overview">
       <div class="flex flex-wrap items-center gap-3 mb-4">
@@ -1139,6 +1161,7 @@ function renderAdmin() {
     v.tab = t;
     $$("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
     $$("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== t; });
+    window.scrollTo(0, 0);
   };
   $$("[data-tab]").forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
   setTab("overview");
@@ -1194,7 +1217,7 @@ function renderAdmin() {
     rememberSites(list.map((u) => ({ site: u.assignedSite })));
     refreshSiteSelect();
     const pending = list.filter((u) => u.status === "pending");
-    $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="badge badge-crit">${pending.length}</span>` : "";
+    $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold">${pending.length}</span>` : "";
     $("#pending-banner").innerHTML = pending.length ? `
       <button class="w-full text-right rounded-2xl bg-white border border-slate-200 px-4 py-3 mb-4 font-bold text-slate-800 flex items-center gap-2" id="go-pending">
         🔔 ${pending.length === 1 ? "בקשת הרשאה אחת ממתינה" : `${pending.length} בקשות הרשאה ממתינות`} לאישור <span class="mr-auto underline">לטיפול ←</span>

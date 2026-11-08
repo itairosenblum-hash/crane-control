@@ -75,8 +75,8 @@
       .lvl.lvl-warn[aria-pressed="true"] { @apply bg-amber-50 border-amber-500 text-amber-800; }
       .lvl.lvl-crit[aria-pressed="true"] { @apply bg-red-50 border-red-500 text-red-700; }
 
-      .tab { @apply px-4 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-white whitespace-nowrap; }
-      .tab[aria-selected="true"] { @apply bg-white text-slate-900 shadow-sm; }
+      .tab { @apply flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-bold text-slate-400 border-t-2 border-transparent; }
+      .tab[aria-selected="true"] { @apply text-slate-900 border-slate-900; }
       .th { @apply text-right font-bold text-slate-500 text-xs px-3 py-2 bg-slate-50 border-b border-slate-200 whitespace-nowrap; }
       .td { @apply px-3 py-2 border-b border-slate-100 align-top text-sm; }
     }
@@ -91,6 +91,6 @@
   <div id="modal-root"></div>
   <div id="toast-root" class="fixed top-16 inset-x-0 z-50 flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
 
-  <script type="module" src="js/ui.js?v=202611082303"></script>
+  <script type="module" src="js/ui.js?v=202611082306"></script>
 </body>
 </html>

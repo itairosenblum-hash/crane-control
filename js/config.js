@@ -37,4 +37,4 @@ export const DEFAULTS = {
 export const HISTORY_HOURS = 72;
 
 // גרסת האתר (מתעדכנת אוטומטית ע"י scripts/bump-version.py)
-export const APP_VERSION = "202611082303";
+export const APP_VERSION = "202611082306";

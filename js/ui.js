@@ -1,19 +1,19 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082300";
-import * as api from "./firestore.js?v=202611082300";
-import * as push from "./push.js?v=202611082300";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082300";
+import { login, logout, onAuth } from "./auth.js?v=202611082303";
+import * as api from "./firestore.js?v=202611082303";
+import * as push from "./push.js?v=202611082303";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082303";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
 const USER_STATUS = {
-  pending: { label: "ממתין", cls: "bg-amber-100 text-amber-800" },
-  approved: { label: "פעיל", cls: "bg-emerald-100 text-emerald-800" },
+  pending: { label: "ממתין", cls: "badge-warn" },
+  approved: { label: "פעיל", cls: "badge-ok" },
   rejected: { label: "חסום / נדחה", cls: "bg-red-100 text-red-800" },
 };
 const CRANE_STATUS = {
-  available: { label: "פנוי", cls: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500" },
-  in_use: { label: "בהפעלה", cls: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
+  available: { label: "פנוי", cls: "badge-ok", dot: "bg-emerald-500" },
+  in_use: { label: "בהפעלה", cls: "badge-warn", dot: "bg-amber-500" },
   maintenance: { label: "מושבת / תחזוקה", cls: "bg-slate-200 text-slate-700", dot: "bg-slate-500" },
 };
 const PRE_TOGGLES = {
@@ -84,7 +84,7 @@ function clearSubs() {
 }
 
 function toast(msg, type = "info") {
-  const colors = { info: "bg-slate-900", success: "bg-emerald-600", error: "bg-red-600" };
+  const colors = { info: "bg-slate-800", success: "bg-slate-900", error: "bg-red-700" };
   const el = document.createElement("div");
   el.className = `${colors[type] || colors.info} text-white font-bold px-5 py-3 rounded-xl shadow-xl max-w-md w-full text-center pointer-events-auto transition-opacity`;
   el.textContent = msg;
@@ -199,9 +199,9 @@ function validityBadge(dateStr, kind, { linked = true, short = false } = {}) {
   const name = kind === "inspection" ? "תסקיר" : "רישיון";
   const d = api.fmtDateStr(api.normDate(dateStr));
   const map = {
-    ok: ["bg-emerald-100 text-emerald-800", short ? `${name} ✓` : `${name} עד ${d}`],
-    soon: ["bg-amber-100 text-amber-900", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
-    expired: [cfg.severity === "critical" ? "bg-red-600 text-white" : "bg-amber-400 text-slate-900", `${name} פג ${d}`],
+    ok: ["badge-ok", short ? `${name} ✓` : `${name} עד ${d}`],
+    soon: ["badge-warn", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
+    expired: [cfg.severity === "critical" ? "badge-crit" : "badge-warn", `${name} פג ${d}`],
     unknown: ["bg-slate-200 text-slate-600", `אין תאריך ${name}`],
   };
   const [cls, text] = map[v.state];
@@ -216,9 +216,9 @@ function licenseBadges(u) {
     const name = api.LICENSE_FIELDS[f];
     const d = api.fmtDateStr(u.licenses?.[f]);
     const map = {
-      ok: ["bg-emerald-100 text-emerald-800", `${name} עד ${d}`],
-      soon: ["bg-amber-100 text-amber-900", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
-      expired: [cfg.severity === "critical" ? "bg-red-600 text-white" : "bg-amber-400 text-slate-900", `${name} פג ${d}`],
+      ok: ["badge-ok", `${name} עד ${d}`],
+      soon: ["badge-warn", `${name} יפוג ${v.days === 0 ? "היום" : `בעוד ${v.days} ימים`}`],
+      expired: [cfg.severity === "critical" ? "badge-crit" : "badge-warn", `${name} פג ${d}`],
       unknown: ["bg-slate-200 text-slate-600", `אין תאריך ${name}`],
     };
     const [cls, text] = map[v.state];
@@ -244,12 +244,12 @@ function installBanner() {
   if (isStandaloneApp()) return "";
   try { if (Date.now() < Number(localStorage.getItem(INSTALL_KEY) || 0)) return ""; } catch { /* ignore */ }
   return `
-    <div id="install-banner" class="bg-amber-400 text-slate-900">
+    <div id="install-banner" class="bg-white border-b border-slate-200 text-slate-700">
       <div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2">
         <span class="text-xl">📲</span>
         <span class="flex-1 text-sm font-bold leading-tight">האפליקציה לא מותקנת בטלפון. התקן לגישה מהירה ולהתראות.</span>
-        <button id="btn-install" class="btn btn-dark btn-sm">התקן</button>
-        <button id="btn-install-x" class="px-2 text-xl font-black" aria-label="סגור">×</button>
+        <button id="btn-install" class="btn btn-primary btn-sm">התקן</button>
+        <button id="btn-install-x" class="px-2 text-xl text-slate-400" aria-label="סגור">×</button>
       </div>
     </div>`;
 }
@@ -283,13 +283,13 @@ function shell(inner, { wide = true } = {}) {
           <div class="font-extrabold leading-tight">בקרת מנופים</div>
           <div class="text-xs text-slate-300 truncate">${sub}</div>
         </div>
-        ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="text-sm font-bold px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400" title="תצוגה כמשתמש">👁️</button>` : ""}
+        ${isDeveloper() && state.profile?.status === "approved" ? `<button id="btn-viewas" class="text-sm font-bold px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20" title="תצוגה כמשתמש">👁️</button>` : ""}
         <button id="btn-logout" class="text-sm font-bold px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">יציאה</button>
       </div>
     </header>
-    ${state.viewAs ? `<div class="bg-indigo-600 text-white"><div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm font-bold">
+    ${state.viewAs ? `<div class="bg-slate-700 text-white"><div class="max-w-6xl mx-auto px-4 py-2 flex items-center gap-2 text-sm font-bold">
       <span class="flex-1">👁️ מצב תצוגה: ${esc(state.viewAs.label)}. פעולות לא נשמרות.</span>
-      <button id="btn-viewas-exit" class="btn btn-sm bg-white text-indigo-700">יציאה</button></div></div>` : ""}
+      <button id="btn-viewas-exit" class="btn btn-sm bg-white text-slate-800">יציאה</button></div></div>` : ""}
     ${state.profile?.status === "approved" ? installBanner() : ""}
     <main class="${wide ? "max-w-6xl" : "max-w-xl"} mx-auto p-4 pb-28">${inner}
       <div class="text-center text-[10px] text-slate-300 mt-8">גרסה ${APP_VERSION}</div></main>
@@ -454,7 +454,7 @@ function renderRequestForm() {
         <div><span class="lbl">תפקיד מבוקש</span>
           <div class="grid grid-cols-2 gap-3">
             ${[["operator", "מפעיל מנוף", "🕹️"], ["site_manager", "מנהל אתר", "📋"]].map(([v, l, i], idx) => `
-              <label class="crane-opt cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50 has-[:checked]:ring-4 has-[:checked]:ring-amber-200">
+              <label class="crane-opt cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
                 <input type="radio" name="requestedRole" value="${v}" class="sr-only" ${idx === 0 ? "checked" : ""}>
                 <div class="text-3xl">${i}</div><div class="font-bold mt-1">${l}</div>
               </label>`).join("")}
@@ -566,7 +566,7 @@ function drawPick(root, v) {
     </div>
     <div class="space-y-2">
       ${avail.length ? avail.map((c) => `
-        <button type="button" class="w-full flex items-center justify-between gap-3 rounded-2xl bg-white border-2 border-slate-200 active:border-amber-500 active:bg-amber-50 px-4 py-4 text-right shadow-sm" data-crane="${esc(c.id)}">
+        <button type="button" class="w-full flex items-center justify-between gap-3 rounded-2xl bg-white border-2 border-slate-200 active:border-slate-900 active:bg-slate-50 px-4 py-4 text-right shadow-sm" data-crane="${esc(c.id)}">
           <span>
             <span class="block text-sm font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span>
             <span class="block text-3xl font-black leading-tight">${esc(c.craneId)}</span>
@@ -711,9 +711,9 @@ function drawPreIssues(v, form) {
   const a = api.analyzePreCheck(values);
   const crit = a.level === "critical";
   $("#pre-issues").innerHTML = a.level ? `
-    <div class="rounded-2xl border-2 ${crit ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"} p-3">
+    <div class="rounded-2xl border ${crit ? "border-red-200 bg-red-50/60" : "border-amber-200 bg-amber-50/60"} p-3">
       <div class="flex flex-wrap gap-1.5">${issueChips(values)}</div>
-      ${a.blockers.length ? `<div class="mt-2 rounded-xl bg-red-600 text-white font-extrabold p-3">⛔ לא ניתן להתחיל: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
+      ${a.blockers.length ? `<div class="mt-2 rounded-xl bg-red-50 text-red-800 ring-1 ring-red-200 font-extrabold p-3">⛔ לא ניתן להתחיל: ${esc(a.blockers.join(", "))}. פנה למנהל.</div>` : ""}
     </div>` : "";
   const btn = form.querySelector("button[type=submit]");
   if (btn && !v.submitting) btn.classList.toggle("opacity-50", a.blockers.length > 0);
@@ -774,12 +774,12 @@ function mountActive(root, v) {
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> בהפעלה
       </div>
       <div class="text-slate-400 font-bold">${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}</div>
-      ${since(op.startTime, "block text-6xl font-black text-amber-400 my-3")}
+      ${since(op.startTime, "block text-6xl font-black text-white my-3")}
       <div class="text-slate-400 text-sm">${esc(pc.workLocation)} · התחלה ${fmtTime(op.startTime)}</div>
     </div>
     ${(pc.issues || []).length ? `<div class="mt-3 flex flex-wrap gap-1.5">${issueChips(pc)}</div>` : ""}
     <div class="fixed bottom-0 inset-x-0 p-3 bg-gradient-to-t from-slate-100 via-slate-100" style="padding-bottom: calc(env(safe-area-inset-bottom) + 12px)">
-      <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-danger btn-xl">⏹ סיום הפעלה</button></div>
+      <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-primary btn-xl">⏹ סיום הפעלה</button></div>
     </div>`;
   $("#btn-end", root).onclick = () => { state.closing = true; mountPostCheck(root, v); };
 }
@@ -804,7 +804,7 @@ function mountPostCheck(root, v) {
     <textarea id="f-notes" class="inp mt-3 min-h-[80px]" placeholder="הערות (לא חובה)"></textarea>
     <div class="sticky bottom-3 mt-4 grid grid-cols-3 gap-2">
       <button id="btn-back" class="btn btn-ghost py-5 rounded-2xl shadow-lg">חזרה</button>
-      <button id="btn-sign" class="btn btn-success btn-xl col-span-2">✍ סגור הפעלה</button>
+      <button id="btn-sign" class="btn btn-primary btn-xl col-span-2">✍ סגור הפעלה</button>
     </div>`;
   window.scrollTo(0, 0);
   const setChk = (b, on) => { checks[b.dataset.chk] = on; b.setAttribute("aria-pressed", String(on)); };
@@ -852,18 +852,18 @@ function mountPostCheck(root, v) {
 function issueChips(pc = {}) {
   const a = api.analyzePreCheck(pc);
   return [
-    ...a.critical.map((x) => `<span class="badge bg-red-600 text-white">${esc(x)}</span>`),
-    ...a.warning.map((x) => `<span class="badge bg-amber-400 text-slate-900">${esc(x)}</span>`),
+    ...a.critical.map((x) => `<span class="badge badge-crit">${esc(x)}</span>`),
+    ...a.warning.map((x) => `<span class="badge badge-warn">${esc(x)}</span>`),
   ].join("");
 }
 const opLevel = (op) => api.analyzePreCheck(op.preCheck || {}).level;
 const hasIssues = (op) => !!opLevel(op);
 const LEVEL_BADGE = {
-  critical: `<span class="badge bg-red-600 text-white">🚨 חמורה</span>`,
-  warning: `<span class="badge bg-amber-400 text-slate-900">⚠️ ראשונית</span>`,
+  critical: `<span class="badge badge-crit">🚨 חמורה</span>`,
+  warning: `<span class="badge badge-warn">⚠️ ראשונית</span>`,
 };
 const opStatusBadge = (op) => (op.status === "active"
-  ? `<span class="badge bg-amber-100 text-amber-900"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>פעיל</span>`
+  ? `<span class="badge badge-warn"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>פעיל</span>`
   : op.postCheck?.forcedClose
     ? `<span class="badge bg-purple-100 text-purple-800">סגירה כפויה</span>`
     : `<span class="badge bg-slate-200 text-slate-700">הושלם</span>`);
@@ -882,10 +882,10 @@ function drawAlerts(el, ops) {
   const list = ops.filter(hasIssues).sort((a, b) => rank[opLevel(a)] - rank[opLevel(b)]);
   const nCrit = list.filter((o) => opLevel(o) === "critical").length;
   el.innerHTML = list.length ? `
-    <section class="rounded-2xl border-2 border-red-400 bg-red-50 p-4 mb-6 shadow-sm">
-      <h2 class="text-lg font-black text-red-800 mb-3 flex flex-wrap items-center gap-2">🚨 התראות ופערים
-        ${nCrit ? `<span class="badge bg-red-600 text-white">${nCrit} חמורות</span>` : ""}
-        ${list.length - nCrit ? `<span class="badge bg-amber-400 text-slate-900">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
+    <section class="card border-r-4 border-r-red-500 mb-6">
+      <h2 class="text-lg font-black text-slate-900 mb-3 flex flex-wrap items-center gap-2">🚨 התראות ופערים
+        ${nCrit ? `<span class="badge badge-crit">${nCrit} חמורות</span>` : ""}
+        ${list.length - nCrit ? `<span class="badge badge-warn">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
       <div class="grid gap-3 md:grid-cols-2">
         ${list.map((op) => `
           <div class="bg-white rounded-xl border border-red-200 border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : "border-r-amber-400"} p-3">
@@ -897,12 +897,12 @@ function drawAlerts(el, ops) {
           </div>`).join("")}
       </div>
     </section>` : `
-    <div class="rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold px-4 py-3 mb-6">✓ אין התראות פתוחות ב-${HISTORY_HOURS} השעות האחרונות</div>`;
+    <div class="rounded-2xl bg-white border border-slate-200 text-slate-500 font-bold px-4 py-3 mb-6">✓ אין התראות פתוחות ב-${HISTORY_HOURS} השעות האחרונות</div>`;
 }
 
 function drawActiveCards(el, ops, { showSite = false } = {}) {
   el.innerHTML = ops.length ? ops.map((op) => `
-    <div class="card border-r-4 ${opLevel(op) === "critical" ? "border-r-red-600" : opLevel(op) === "warning" ? "border-r-amber-400" : "border-r-slate-300"}">
+    <div class="card border-r-4 ${opLevel(op) === "critical" ? "border-r-red-500" : opLevel(op) === "warning" ? "border-r-amber-400" : "border-r-slate-200"}">
       <div class="flex items-start justify-between gap-2">
         <div>
           <div class="text-xs text-slate-500 font-bold">${esc(op.craneKind || "מנוף")}${showSite ? ` · ${esc(op.site)}` : ""}</div>
@@ -910,7 +910,7 @@ function drawActiveCards(el, ops, { showSite = false } = {}) {
         </div>
         <div class="text-left">
           <div class="text-xs text-slate-500 font-bold">זמן ריצה</div>
-          ${since(op.startTime, "text-xl font-black text-amber-600")}
+          ${since(op.startTime, "text-xl font-black text-slate-900")}
         </div>
       </div>
       <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
@@ -987,7 +987,7 @@ function mountDashboard(container, getSite, { notifyScope = "", getOperators = n
     <div id="d-alerts"></div>
     <div id="d-validity"></div>
     <section class="mb-6">
-      <h2 class="sec-title flex items-center gap-2">כלים בהפעלה כעת <span id="d-active-cnt" class="badge bg-amber-500 text-slate-900"></span></h2>
+      <h2 class="sec-title flex items-center gap-2">כלים בהפעלה כעת <span id="d-active-cnt" class="badge bg-slate-100 text-slate-700"></span></h2>
       <div id="d-active" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
     </section>
     <section class="mb-6"><h2 class="sec-title">מצב הכלים</h2><div id="d-fleet" class="card"></div></section>
@@ -1057,20 +1057,20 @@ function drawValidity(el, cranes, operators) {
   const badOps = (operators || []).filter(licenseBad);
   if (!badCranes.length && !badOps.length) { el.innerHTML = ""; return; }
   el.innerHTML = `
-    <section class="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 mb-6">
-      <h2 class="text-lg font-black text-amber-900 mb-3">📄 תוקף תסקירים ורישיונות</h2>
+    <section class="card border-r-4 border-r-amber-400 mb-6">
+      <h2 class="text-lg font-black text-slate-900 mb-3">📄 תוקף תסקירים ורישיונות</h2>
       <div class="grid gap-4 ${operators ? "md:grid-cols-2" : ""}">
         ${badCranes.length ? `<div>
           <div class="font-bold text-slate-700 mb-2">כלים (${badCranes.length})</div>
           <div class="space-y-2">${badCranes.map((c) => `
-            <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
               <span><b>${esc(api.unitName(c))}</b> <span class="text-xs text-slate-500">${esc(c.site)}</span></span>
               ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId })}
             </div>`).join("")}</div></div>` : ""}
         ${badOps.length ? `<div>
           <div class="font-bold text-slate-700 mb-2">מנופאים (${badOps.length})</div>
           <div class="space-y-2">${badOps.map((u) => `
-            <div class="bg-white rounded-xl border border-amber-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="bg-white rounded-xl border border-slate-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
               <span><b>${esc(u.name)}</b> <span class="text-xs text-slate-500">${esc(u.assignedSite)}</span></span>
               <span class="flex flex-wrap gap-1">${licenseBadges(u)}</span>
             </div>`).join("")}</div></div>` : ""}
@@ -1099,8 +1099,8 @@ function renderAdmin() {
   shell(`
     <div id="pending-banner"></div>
     <div class="flex justify-end mb-3">
-      <button id="btn-share" class="btn btn-sm bg-[#25D366] text-white hover:brightness-95">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.2-.2-.5-.3Z"/></svg>
+      <button id="btn-share" class="btn btn-sm bg-white text-slate-700 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-600" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3a.5.5 0 0 0 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.2-.2-.5-.3Z"/></svg>
         שתף בוואטסאפ
       </button>
     </div>
@@ -1194,9 +1194,9 @@ function renderAdmin() {
     rememberSites(list.map((u) => ({ site: u.assignedSite })));
     refreshSiteSelect();
     const pending = list.filter((u) => u.status === "pending");
-    $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="badge bg-red-600 text-white">${pending.length}</span>` : "";
+    $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="badge badge-crit">${pending.length}</span>` : "";
     $("#pending-banner").innerHTML = pending.length ? `
-      <button class="w-full text-right rounded-2xl bg-amber-100 border-2 border-amber-400 px-4 py-3 mb-4 font-bold text-amber-900 flex items-center gap-2" id="go-pending">
+      <button class="w-full text-right rounded-2xl bg-white border border-slate-200 px-4 py-3 mb-4 font-bold text-slate-800 flex items-center gap-2" id="go-pending">
         🔔 ${pending.length === 1 ? "בקשת הרשאה אחת ממתינה" : `${pending.length} בקשות הרשאה ממתינות`} לאישור <span class="mr-auto underline">לטיפול ←</span>
       </button>` : "";
     $("#go-pending")?.addEventListener("click", () => setTab("users"));
@@ -1289,7 +1289,7 @@ function drawUsersPanel(panel, v) {
           <thead><tr><th class="th">שם</th><th class="th">טלפון</th><th class="th">תפקיד</th><th class="th">אתר</th><th class="th">מנופאי / רישיון</th><th class="th">סטטוס</th><th class="th"></th></tr></thead>
           <tbody>${others.map((u) => `
             <tr data-uid="${esc(u.id)}">
-              <td class="td"><div class="font-bold">${esc(u.name)}${u.id === me ? ` <span class="badge bg-slate-200">אני</span>` : ""}${u.developer ? ` <span class="badge bg-indigo-100 text-indigo-800">מפתח</span>` : isFixedAdminEmail(u.email) ? ` <span class="badge bg-amber-100 text-amber-900">מנהל קבוע</span>` : ""}</div><div class="text-xs text-slate-500">${esc(u.email)}</div></td>
+              <td class="td"><div class="font-bold">${esc(u.name)}${u.id === me ? ` <span class="badge bg-slate-200">אני</span>` : ""}${u.developer ? ` <span class="badge bg-slate-100 text-slate-700">מפתח</span>` : isFixedAdminEmail(u.email) ? ` <span class="badge badge-warn">מנהל קבוע</span>` : ""}</div><div class="text-xs text-slate-500">${esc(u.email)}</div></td>
               <td class="td" dir="ltr" style="text-align:right">${esc(u.phone)}</td>
               <td class="td">${roleSelect(u.role)}</td>
               <td class="td"><input class="inp-sm" name="site" list="sites-list" value="${esc(u.assignedSite)}" placeholder="כל האתרים"></td>
@@ -1320,7 +1320,7 @@ function drawUsersPanel(panel, v) {
               <td class="td font-bold">${esc(o.name)}</td>
               <td class="td">${esc(api.siteNameFor(o.siteId, v.sites) || "—")}</td>
               <td class="td"><div class="flex flex-wrap gap-1">${licenseBadges({ operatorRecordId: o.id, licenses: o.licenses })}</div></td>
-              <td class="td">${linkedUser ? `<span class="badge bg-emerald-100 text-emerald-800">${esc(linkedUser.name)}</span>` : `<span class="text-xs text-slate-400">טרם נרשם. שתף איתו את האתר בוואטסאפ</span>`}</td>
+              <td class="td">${linkedUser ? `<span class="badge badge-ok">${esc(linkedUser.name)}</span>` : `<span class="text-xs text-slate-400">טרם נרשם. שתף איתו את האתר בוואטסאפ</span>`}</td>
             </tr>`;
           }).join("")}</tbody>
         </table>
@@ -1515,7 +1515,7 @@ function levelRow(key, label, cfg) {
           <div class="flex items-center gap-1"><input type="number" name="${key}.crit" min="0" max="99" class="inp-sm text-center font-bold" value="${cfg.crit}"><span class="font-bold text-slate-500">%</span></div>
         </div>
       </div>
-      <div class="mt-3 h-3 rounded-full overflow-hidden flex flex-row-reverse bg-emerald-500" data-bar="${key}" dir="ltr"></div>
+      <div class="mt-3 h-2 rounded-full overflow-hidden flex flex-row-reverse bg-emerald-300" data-bar="${key}" dir="ltr"></div>
       <div class="flex justify-between text-[10px] text-slate-400 mt-0.5" dir="ltr"><span>0%</span><span>100%</span></div>
     </div>`;
 }
@@ -1527,7 +1527,7 @@ function mountAlertSettings(panel) {
     <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
       ${isDeveloper() ? `<div class="card">
         <h2 class="sec-title !mb-1">🔔 ההתראות שלי</h2>
-        <div class="rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 p-4 mt-3">
+        <div class="rounded-xl bg-slate-50 border border-slate-200 text-slate-800 p-4 mt-3">
           <div class="font-extrabold">חשבון מפתח</div>
           <p class="text-sm mt-1">לחשבון זה הרשאות מלאות, אבל הוא לא מקבל התראות. ההתראות נשלחות למנהל המערך (${esc(ADMIN_EMAILS.join(", "))}) לפי ההגדרות שלו.</p>
         </div>
@@ -1549,7 +1549,7 @@ function mountAlertSettings(panel) {
             <div class="font-bold text-slate-800 mb-2">רמת התראה</div>
             <div class="grid grid-cols-2 gap-2">
               ${[["critical", "חמורות בלבד", "🚨"], ["warning", "ראשוניות וחמורות", "⚠️"]].map(([v, l, i]) => `
-                <label class="crane-opt !p-3 cursor-pointer has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50 has-[:checked]:ring-4 has-[:checked]:ring-amber-200">
+                <label class="crane-opt !p-3 cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
                   <input type="radio" name="minLevel" value="${v}" class="sr-only" ${prefs.minLevel === v ? "checked" : ""}>
                   <div class="text-xl">${i}</div><div class="font-bold text-sm">${l}</div>
                 </label>`).join("")}
@@ -1715,7 +1715,7 @@ function mountAlertSettings(panel) {
       $$("input[type=number]", row).forEach((i) => { i.disabled = !en; });
       const bar = $(`[data-bar="${k}"]`, as);
       bar.classList.toggle("opacity-30", !en);
-      bar.innerHTML = `<div class="bg-red-600" style="width:${Math.min(c, 100)}%"></div><div class="bg-amber-400" style="width:${Math.max(0, Math.min(w, 100) - Math.min(c, 100))}%"></div>`;
+      bar.innerHTML = `<div class="bg-red-400" style="width:${Math.min(c, 100)}%"></div><div class="bg-amber-300" style="width:${Math.max(0, Math.min(w, 100) - Math.min(c, 100))}%"></div>`;
       bar.style.flexDirection = "row";
     });
   };

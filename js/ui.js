@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611092055";
-import * as api from "./firestore.js?v=202611092055";
-import * as push from "./push.js?v=202611092055";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092055";
+import { login, logout, onAuth } from "./auth.js?v=202611092100";
+import * as api from "./firestore.js?v=202611092100";
+import * as push from "./push.js?v=202611092100";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092100";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -110,6 +110,25 @@ const SEC_PATHS = {
   send: "M22 2 11 13M22 2l-7 20-4-9-9-4z",
   gauge: "M12 14l4-4M3.3 19a10 10 0 1 1 17.4 0",
   search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16M21 21l-4.3-4.3",
+  // בדיקות מפעיל
+  fuel: "M3 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18M2 22h14M6 6h6v4H6zM15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3",
+  urea: "M6 5h12a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1M9 2h6v3M12 9s-2.5 3-2.5 4.8a2.5 2.5 0 0 0 5 0C14.5 12 12 9 12 9",
+  oil: "M3 10h9l3 3h3l4-3v2.5L17 18H3zM6 10V7h4v3M20 17.5a1 1 0 1 0 2 0c0-.8-1-2-1-2s-1 1.2-1 2",
+  water: "M12 2.5s-4.5 5.2-4.5 8.5a4.5 4.5 0 0 0 9 0c0-3.3-4.5-8.5-4.5-8.5M2 20c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5 2-1.5 4-1.5",
+  sling: "M12 2v5M9 2h6M12 7 4.5 18M12 7l7.5 11M3 18h18v4H3z",
+  shackle: "M8 18V8a4 4 0 0 1 8 0v10M4.5 18h15M4.5 16v4M19.5 16v4",
+  hook: "M12 2v7M9 2h6M12 9a6 6 0 1 1-6 6v-3l-2.5 2.5",
+  parking: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2M9 17V7h4a3 3 0 0 1 0 6H9",
+  lid: "M4 9h16v11H4zM2 5h20v4H2zM10 13h4",
+  snow: "M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 2 3-2M9 20l3-2 3 2",
+  curtain: "M2 3h20M4 3v18h3c1-5 1-11 3-18M20 3v18h-3c-1-5-1-11-3-18",
+  lock: "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1M8 11V7a4 4 0 0 1 8 0v4M12 15v2",
+};
+/** אייקון בתוך ריבוע מעוגל, לשורות הבדיקה */
+const tileIcon = (name) => `<span class="w-9 h-9 rounded-xl bg-slate-100 text-ink inline-flex items-center justify-center shrink-0">${secIcon(name, 19)}</span>`;
+const ITEM_ICONS = {
+  oilLevelOk: "oil", waterLevelOk: "water", strapsOk: "sling", shacklesOk: "shackle", trolleyOk: "hook",
+  craneParked: "parking", bubaClosed: "lid", acOff: "snow", curtainClosed: "curtain", craneLocked: "lock",
 };
 const secIcon = (name, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0" aria-hidden="true"><path d="${SEC_PATHS[name]}"/></svg>`;
 
@@ -695,13 +714,13 @@ function setupExternalLookup(form, v, refresh) {
 }
 
 // ----- שלב 2: בדיקה לפני הפעלה -----
-function levelChips(name, label, key) {
+function levelChips(name, label, key, icon) {
   const c = api.getAlertSettings()[key];
   const tone = (n) => (!c.enabled ? "" : n < c.crit ? "lvl-crit" : n < c.warn ? "lvl-warn" : "");
   return `
     <div class="py-3">
-      <div class="flex items-baseline justify-between mb-2">
-        <span class="text-[17px] font-semibold">${label}</span>
+      <div class="flex items-center justify-between mb-2">
+        <span class="flex items-center gap-3 text-[17px] font-semibold">${icon ? tileIcon(icon) : ""}${label}</span>
         <span class="text-2xl font-bold tabular-nums" data-level-val="${name}">—</span>
       </div>
       <div class="grid grid-cols-5 gap-1.5" data-level="${name}">
@@ -712,8 +731,8 @@ function levelChips(name, label, key) {
 function toggleRow(name, label) {
   return `
     <div class="flex items-center justify-between gap-2 px-4 py-2.5" data-toggle="${name}">
-      <span class="text-[17px]">${label}</span>
-      <div class="flex gap-1.5">
+      <span class="flex items-center gap-3 text-[17px] min-w-0">${ITEM_ICONS[name] ? tileIcon(ITEM_ICONS[name]) : ""}<span>${label}</span></span>
+      <div class="flex gap-1.5 shrink-0">
         <button type="button" class="tgl" data-val="1">תקין</button>
         <button type="button" class="tgl" data-val="0">לא תקין</button>
       </div>
@@ -755,18 +774,18 @@ function mountCheck(root, v) {
       </section>` : ""}
       <section class="card space-y-3">
         <div>
-          <label class="lbl" for="f-loc">מיקום עבודה</label>
+          <label class="lbl flex items-center gap-1.5" for="f-loc">${secIcon("pin")}מיקום עבודה</label>
           <input id="f-loc" name="workLocation" class="inp" placeholder="רציף / מיקום" autocomplete="off" value="${esc(recent[0] || "")}">
           ${recent.length > 1 ? `<div class="flex flex-wrap gap-1.5 mt-2">${recent.map((l) => `<button type="button" class="badge bg-slate-100 text-slate-700 !text-sm !py-1.5" data-loc="${esc(l)}">${esc(l)}</button>`).join("")}</div>` : ""}
         </div>
         <div>
-          <label class="lbl" for="f-hours">שעות מנוע</label>
+          <label class="lbl flex items-center gap-1.5" for="f-hours">${secIcon("gauge")}שעות מנוע</label>
           <input id="f-hours" name="engineHours" class="inp text-center text-2xl font-bold" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="0">
         </div>
       </section>
       <section class="card !py-1 divide-y divide-slate-100">
-        ${levelChips("fuelLevel", "דלק", "fuel")}
-        ${levelChips("ureaLevel", "אוראה", "urea")}
+        ${levelChips("fuelLevel", "דלק", "fuel", "fuel")}
+        ${levelChips("ureaLevel", "אוראה", "urea", "urea")}
       </section>
       <div class="flex items-center justify-between px-1 pt-2">
         <span class="text-sm font-semibold text-muted">בדיקות לפני הפעלה</span>
@@ -954,7 +973,7 @@ function mountPostCheck(root, v) {
     </div>
     <section class="group-list" id="post-list">
       ${POST_ITEMS.map(([k, l]) => `
-        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">${ICONS.check}</span><span>${esc(l.replace("מנוף", op.craneKind || "מנוף"))}</span></button>
+        <button type="button" class="chk" data-chk="${k}" aria-pressed="false"><span class="box">${ICONS.check}</span>${ITEM_ICONS[k] ? tileIcon(ITEM_ICONS[k]) : ""}<span>${esc(l.replace("מנוף", op.craneKind || "מנוף"))}</span></button>
         ${k === "craneParked" ? `
         <div id="park-row" class="px-4 pb-4 pt-1 bg-white" hidden>
           <label class="lbl" for="f-park">איפה ${esc(op.craneKind || "המנוף")} חונה?</label>

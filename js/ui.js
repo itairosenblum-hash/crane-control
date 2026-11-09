@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611092045";
-import * as api from "./firestore.js?v=202611092045";
-import * as push from "./push.js?v=202611092045";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092045";
+import { login, logout, onAuth } from "./auth.js?v=202611092055";
+import * as api from "./firestore.js?v=202611092055";
+import * as push from "./push.js?v=202611092055";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092055";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -90,6 +90,28 @@ const ICONS = {
   chevron: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>`,
   check: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
 };
+
+// אייקונים לכותרות סעיפים (קו, בסגנון התפריט התחתון)
+const SEC_PATHS = {
+  alert: "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0M12 9v4M12 17h.01",
+  play: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M10 8l6 4-6 4z",
+  crane: "M4 21V5h3v16M2 21h10M7 5h13M7 9l4-4M20 5v6M18 11h4v3h-4z",
+  clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M12 6v6l4 2",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10M9 12l2 2 4-4",
+  userPlus: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6",
+  users: "M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+  idCard: "M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1M8 13a2 2 0 1 0 0-4 2 2 0 0 0 0 4M5 17a3 3 0 0 1 6 0M14 10h5M14 14h4",
+  bell: "M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0",
+  sliders: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
+  checkCircle: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M8 12l3 3 5-6",
+  ban: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M5 5l14 14",
+  pin: "M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5",
+  archive: "M3 4h18v4H3zM5 8v12h14V8M10 12h4",
+  send: "M22 2 11 13M22 2l-7 20-4-9-9-4z",
+  gauge: "M12 14l4-4M3.3 19a10 10 0 1 1 17.4 0",
+  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16M21 21l-4.3-4.3",
+};
+const secIcon = (name, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0" aria-hidden="true"><path d="${SEC_PATHS[name]}"/></svg>`;
 
 function toast(msg, type = "info") {
   const colors = { info: "bg-ink/95", success: "bg-ink/95", error: "bg-[#B42318]" };
@@ -600,7 +622,7 @@ function drawPick(root, v) {
   root.innerHTML = `
     <h1 class="page-title">בחר כלי</h1>
     <div class="flex flex-wrap gap-1.5 mt-2 mb-5">${licenseBadges(me())}</div>
-    <div class="sec-title">פנויים באתר ${esc(me().assignedSite)}</div>
+    <div class="sec-title">${secIcon("checkCircle")}פנויים באתר ${esc(me().assignedSite)}</div>
     ${avail.length ? `<div class="group-list">${avail.map((c) => `
       <button type="button" class="w-full flex items-center gap-3 px-4 py-3.5 text-right active:bg-slate-50" data-crane="${esc(c.id)}">
         <span class="flex-1 min-w-0">
@@ -611,7 +633,7 @@ function drawPick(root, v) {
         ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
         <span class="text-slate-300">${ICONS.chevron}</span>
       </button>`).join("")}</div>` : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
-    ${busy.length ? `<div class="sec-title mt-6">לא זמינים</div>
+    ${busy.length ? `<div class="sec-title mt-6">${secIcon("ban")}לא זמינים</div>
       <div class="group-list">${busy.map((c) => `
         <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${esc(api.unitName(c))}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}
     <button type="button" id="btn-external" class="btn btn-ghost w-full mt-6 bg-white border border-dashed border-slate-300">מנוף שלא מהיחידה</button>
@@ -1043,7 +1065,7 @@ function drawAlerts(el, ops) {
   const nCrit = list.filter((o) => opLevel(o) === "critical").length;
   el.innerHTML = list.length ? `
     <section class="card mb-6 ring-1 ring-[#B42318]/15">
-      <h2 class="text-lg font-black text-slate-900 mb-3 flex flex-wrap items-center gap-2">התראות
+      <h2 class="text-lg font-black text-slate-900 mb-3 flex flex-wrap items-center gap-2"><span class="text-[#B42318]">${secIcon("alert", 20)}</span>התראות
         ${nCrit ? `<span class="badge badge-crit">${nCrit} חמורות</span>` : ""}
         ${list.length - nCrit ? `<span class="badge badge-warn">${list.length - nCrit} ראשוניות</span>` : ""}</h2>
       <div class="grid gap-3 md:grid-cols-2">
@@ -1147,11 +1169,11 @@ function mountDashboard(container, getSite, { notifyScope = "", getOperators = n
     <div id="d-alerts"></div>
     <div id="d-validity"></div>
     <section class="mb-6">
-      <h2 class="sec-title flex items-center gap-2">כלים בהפעלה כעת <span id="d-active-cnt" class="badge bg-slate-100 text-slate-700"></span></h2>
+      <h2 class="sec-title">${secIcon("play")}כלים בהפעלה כעת <span id="d-active-cnt" class="badge bg-slate-100 text-slate-700"></span></h2>
       <div id="d-active" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
     </section>
-    <section class="mb-6"><h2 class="sec-title">מצב הכלים</h2><div id="d-fleet" class="card"></div></section>
-    <section><h2 class="sec-title">יומן ${HISTORY_HOURS} שעות אחרונות</h2><div id="d-log">${spinner}</div></section>`;
+    <section class="mb-6"><h2 class="sec-title">${secIcon("crane")}מצב הכלים</h2><div id="d-fleet" class="card"></div></section>
+    <section><h2 class="sec-title">${secIcon("clock")}יומן ${HISTORY_HOURS} שעות אחרונות</h2><div id="d-log">${spinner}</div></section>`;
   const v = { cranes: [], active: [], recent: [], ops: new Map() };
 
   const draw = () => {
@@ -1223,7 +1245,7 @@ function drawValidity(el, cranes, operators) {
   if (!badCranes.length && !badOps.length) { el.innerHTML = ""; return; }
   el.innerHTML = `
     <section class="card mb-6">
-      <h2 class="text-lg font-black text-slate-900 mb-3">תוקף תסקירים ורישיונות</h2>
+      <h2 class="text-lg font-black text-slate-900 mb-3 flex items-center gap-2"><span class="text-[#8A5300]">${secIcon("shield", 20)}</span>תוקף תסקירים ורישיונות</h2>
       <div class="grid gap-4 ${operators ? "md:grid-cols-2" : ""}">
         ${badCranes.length ? `<div>
           <div class="font-bold text-slate-700 mb-2">כלים (${badCranes.length})</div>
@@ -1495,7 +1517,7 @@ function drawUsersPanel(panel, v) {
   const me = state.user.uid;
   panel.innerHTML = `
     <section class="mb-8">
-      <h2 class="sec-title">בקשות ממתינות (${pending.length})</h2>
+      <h2 class="sec-title">${secIcon("userPlus")}בקשות ממתינות (${pending.length})</h2>
       ${pending.length ? `<div class="grid gap-3 md:grid-cols-2">${pending.map((u) => `
         <div class="card border-r-4 border-r-amber-500" data-uid="${esc(u.id)}">
           <div class="flex justify-between gap-2">
@@ -1517,7 +1539,7 @@ function drawUsersPanel(panel, v) {
         </div>`).join("")}</div>` : `<div class="card">${empty("אין בקשות ממתינות")}</div>`}
     </section>
     <section>
-      <h2 class="sec-title">משתמשים קיימים (${others.length})</h2>
+      <h2 class="sec-title">${secIcon("users")}משתמשים קיימים (${others.length})</h2>
       <div class="card !p-0 overflow-x-auto">
         <table class="w-full min-w-[900px]">
           <thead><tr><th class="th">שם</th><th class="th">טלפון</th><th class="th">תפקיד</th><th class="th">אתר</th><th class="th">מנופאי / רישיון</th><th class="th">סטטוס</th><th class="th"></th></tr></thead>
@@ -1543,7 +1565,7 @@ function drawUsersPanel(panel, v) {
       <p class="text-xs text-slate-500 mt-2">מנהל אתר ללא שיוך אתר רואה את כל האתרים. מפעיל חייב להיות משויך לאתר.</p>
     </section>
     <section class="mt-8">
-      <h2 class="sec-title">מנופאים במערכת הציוד (${v.operators ? v.operators.length : "…"})</h2>
+      <h2 class="sec-title">${secIcon("idCard")}מנופאים במערכת הציוד (${v.operators ? v.operators.length : "…"})</h2>
       ${!v.operators ? spinner : !v.operators.length ? `<div class="card">${empty("לא נמצאו מנופאים")}</div>` : `
       <div class="card !p-0 overflow-x-auto">
         <table class="w-full min-w-[640px]">
@@ -1608,7 +1630,7 @@ function drawCraneList(el, cranes) {
   active.forEach((c) => { (bySite[c.site || "ללא אתר"] ||= []).push(c); });
   el.innerHTML = Object.keys(bySite).sort().map((site) => `
     <section class="mb-5">
-      <h3 class="font-black text-slate-700 mb-2">${esc(site)} <span class="text-slate-400 font-bold text-sm">(${bySite[site].length})</span></h3>
+      <h3 class="font-black text-slate-700 mb-2 flex items-center gap-1.5"><span class="text-muted">${secIcon("pin")}</span>${esc(site)} <span class="text-slate-400 font-bold text-sm">(${bySite[site].length})</span></h3>
       <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         ${bySite[site].map((c) => {
           const inUse = c.currentStatus === "in_use";
@@ -1631,7 +1653,7 @@ function drawCraneList(el, cranes) {
       </div>
     </section>`).join("") + (retired.length ? `
     <section class="mb-5 opacity-70">
-      <h3 class="font-black text-slate-500 mb-2">לא קיימים באתר התסקירים (${retired.length})</h3>
+      <h3 class="font-black text-slate-500 mb-2 flex items-center gap-1.5">${secIcon("archive")}לא קיימים באתר התסקירים (${retired.length})</h3>
       <div class="flex flex-wrap gap-2">${retired.map((c) => `<span class="badge bg-slate-200 text-slate-600">${esc(api.serialLabel(c.craneId))} · ${esc(c.site || "")}</span>`).join("")}</div>
       <p class="text-xs text-slate-500 mt-1">כלים אלה לא זמינים להפעלה. הם נשמרים רק לצורך ההיסטוריה.</p>
     </section>` : "");
@@ -1760,12 +1782,12 @@ function mountAlertSettings(panel) {
   panel.innerHTML = `
     <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
       ${isDeveloper() ? `<div class="card">
-        <h2 class="sec-title !mb-1">ההתראות שלי</h2>
+        <h2 class="sec-title !mb-1">${secIcon("bell")}ההתראות שלי</h2>
         <div class="rounded-xl bg-slate-50 border border-slate-200 text-slate-800 p-4 mt-3">
           <div class="font-extrabold">חשבון מפתח</div>
           <p class="text-sm mt-1">לחשבון זה הרשאות מלאות, אבל הוא לא מקבל התראות. ההתראות נשלחות למנהל המערך (${esc(ADMIN_EMAILS.join(", "))}) לפי ההגדרות שלו.</p>
         </div>
-        <div class="font-bold text-slate-700 mt-4 mb-2">בדיקת התראות (נשלחות רק אליך)</div>
+        <div class="font-bold text-slate-700 mt-4 mb-2 flex items-center gap-1.5">${secIcon("send")}בדיקת התראות (נשלחות רק אליך)</div>
         <div class="grid grid-cols-2 gap-2">
           <button type="button" class="btn btn-ghost btn-sm" data-sample-local="critical">חמורה במסך</button>
           <button type="button" class="btn btn-ghost btn-sm" data-sample-local="warning">ראשונית במסך</button>
@@ -1775,12 +1797,12 @@ function mountAlertSettings(panel) {
         <p class="text-xs text-slate-500 mt-2">"לטלפון" רושם את המכשיר הזה ושולח דרך השרת. ההתראה מגיעה גם כשהאפליקציה סגורה, אחרי שמתקינים אותה ומאשרים התראות.</p>
       </div>` : ""}
       <form id="np-form" class="card" ${isDeveloper() ? "hidden" : ""}>
-        <h2 class="sec-title !mb-1">ההתראות שלי</h2>
+        <h2 class="sec-title !mb-1">${secIcon("bell")}ההתראות שלי</h2>
         <p class="text-sm text-slate-500 mb-2">מתי ואיך אתה מקבל התראה על הפעלה חדשה עם ליקויים.</p>
         <div class="divide-y divide-slate-100">
           ${switchInput("enabled", prefs.enabled, "לקבל התראות")}
           <div class="py-3" id="np-level">
-            <div class="font-bold text-slate-800 mb-2">רמת התראה</div>
+            <div class="font-bold text-slate-800 mb-2 flex items-center gap-1.5">${secIcon("gauge")}רמת התראה</div>
             <div class="grid grid-cols-2 gap-2">
               ${[["critical", "חמורות בלבד", "🚨"], ["warning", "ראשוניות וחמורות", "⚠️"]].map(([v, l, i]) => `
                 <label class="crane-opt !p-3 cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
@@ -1800,7 +1822,7 @@ function mountAlertSettings(panel) {
       </form>
 
       <form id="as-form" class="card">
-        <h2 class="sec-title !mb-1">מדדי התראה</h2>
+        <h2 class="sec-title !mb-1">${secIcon("sliders")}מדדי התראה</h2>
         <p class="text-sm text-slate-500 mb-1">חל על כל המערכת: קובע מה נחשב התראה ראשונית ומה התראה חמורה בבדיקת הפתיחה.</p>
         <div id="as-meta" class="text-xs text-slate-400 mb-2"></div>
         ${levelRow("fuel", "דלק", api.getAlertSettings().fuel)}

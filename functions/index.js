@@ -23,7 +23,7 @@ const LICENSE_FIELDS = {
   tatash: 'תת"ש',
 };
 const DEFAULTS = {
-  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2 },
+  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2, escalateAfter: 2 },
   inspection: { severity: "critical", soonDays: 30 },
   license: { severity: "critical", soonDays: 30, fields: ["craneLicenseExpiry"] },
 };
@@ -263,7 +263,22 @@ exports.activeReminder = onSchedule({ schedule: "every 15 minutes", timeZone: "A
         level: "warning",
       });
     }
-    await d.ref.update({ lastReminderAt: admin.firestore.FieldValue.serverTimestamp(), reminderCount: admin.firestore.FieldValue.increment(1) });
+    const count = (op.reminderCount || 0) + 1;
+    await d.ref.update({ lastReminderAt: admin.firestore.FieldValue.serverTimestamp(), reminderCount: count });
+    // אחרי X תזכורות בלי סגירה: התראה למנהל המערך ולמנהל האתר, שיסגרו בסגירה יזומה
+    const escalateAt = cfg.repeatHours > 0 ? cfg.escalateAfter : Math.min(cfg.escalateAfter, 1); // תזכורת אחת בלבד → מסלים מיד
+    if (cfg.escalateAfter > 0 && count === escalateAt) {
+      const managers = await recipients({ level: "critical", site: op.site });
+      if (managers.length) {
+        sent += await sendTo(managers, {
+          title: `⏱️ הפעלה פתוחה ${dur}: ${unit}`,
+          body: `${op.operatorName} · ${op.site}\nנשלחו ${count} תזכורות למפעיל וההפעלה עדיין פתוחה. אפשר לסגור אותה מלוח הבקרה ("סגירה יזומה").`,
+          tag: `escalate-${d.id}`,
+          level: "warning",
+        });
+      }
+      logger.info("active escalation", { opId: d.id, managers: managers.length });
+    }
   }
   if (sent) logger.info("active reminders", { sent });
 });

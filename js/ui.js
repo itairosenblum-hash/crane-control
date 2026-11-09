@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611092215";
-import * as api from "./firestore.js?v=202611092215";
-import * as push from "./push.js?v=202611092215";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092215";
+import { login, logout, onAuth } from "./auth.js?v=202611092230";
+import * as api from "./firestore.js?v=202611092230";
+import * as push from "./push.js?v=202611092230";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092230";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -141,6 +141,53 @@ function toast(msg, type = "info") {
   $("#toast-root").appendChild(el);
   setTimeout(() => { el.style.opacity = "0"; }, type === "error" ? 5000 : 2800);
   setTimeout(() => el.remove(), type === "error" ? 5400 : 3200);
+}
+
+/** בודק שעות מנוע בסגירה מול הפתיחה. מחזיר { value } או { error } */
+function engineHoursCheck(raw, startHours) {
+  if (String(raw ?? "").trim() === "") return { error: "יש לרשום את שעות המנוע בסגירה" };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return { error: "שעות מנוע: מספר לא תקין" };
+  const start = Number(startHours);
+  if (startHours != null && startHours !== "" && Number.isFinite(start) && n < start) return { error: `שעות המנוע בסגירה (${n}) נמוכות מהפתיחה (${start})` };
+  return { value: Math.round(n * 10) / 10 };
+}
+
+/** סגירה יזומה ע"י מנהל: שעות מנוע (חובה), חניה וסיבה */
+function forceCloseDialog(op) {
+  return new Promise((resolve) => {
+    const root = $("#modal-root");
+    const pc = op.preCheck || {};
+    root.innerHTML = `
+      <div class="fixed inset-0 z-40 bg-ink/40 flex items-end sm:items-center justify-center sm:p-4" data-close>
+        <form class="sheet max-h-[92vh] overflow-y-auto" role="dialog" aria-modal="true" novalidate>
+          <h3 class="text-xl font-bold">סגירה יזומה, ${esc(api.unitName(op))}</h3>
+          <p class="text-muted text-sm mt-1 mb-4">ההפעלה של <b class="text-ink">${esc(op.operatorName)}</b> מ-${fmtTime(op.startTime)} תיסגר במקומו, והכלי ישוחרר.</p>
+          <label class="lbl flex items-center gap-1.5" for="fc-hours">${secIcon("gauge")}שעות מנוע בסגירה <span class="text-[#B42318]">*</span></label>
+          <input id="fc-hours" name="hours" class="inp text-center text-2xl font-bold" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="${esc(pc.engineHours ?? "0")}">
+          <p class="text-xs text-muted mt-1 mb-3">בפתיחה נרשם: <b class="text-ink tabular-nums">${esc(pc.engineHours ?? "—")}</b></p>
+          <label class="lbl flex items-center gap-1.5" for="fc-park">${secIcon("parking")}איפה הכלי חונה</label>
+          <input id="fc-park" name="park" class="inp mb-3" autocomplete="off" placeholder="לא חובה" value="">
+          <label class="lbl" for="fc-reason">סיבת הסגירה</label>
+          <input id="fc-reason" name="reason" class="inp mb-5" autocomplete="off" placeholder="לדוגמה: המפעיל שכח לסגור, הטלפון התקלקל">
+          <div class="grid gap-2">
+            <button class="btn btn-xl btn-danger">סגור הפעלה</button>
+            <button type="button" class="btn btn-xl btn-ghost" data-cancel>ביטול</button>
+          </div>
+        </form>
+      </div>`;
+    const form = $("form", root);
+    const done = (v) => { root.innerHTML = ""; resolve(v); };
+    $("[data-cancel]", root).onclick = () => done(null);
+    $("[data-close]", root).onclick = (e) => { if (e.target.hasAttribute("data-close")) done(null); };
+    setTimeout(() => $("#fc-hours", root)?.focus(), 80);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const h = engineHoursCheck(form.elements.hours.value, pc.engineHours);
+      if (h.error) { toast(h.error, "error"); form.elements.hours.focus(); return; }
+      done({ engineHours: h.value, parkedLocation: form.elements.park.value.trim(), reason: form.elements.reason.value.trim() });
+    };
+  });
 }
 
 function confirmDialog({ title, html = "", confirmText = "אישור", cancelText = "ביטול", danger = false }) {
@@ -1015,6 +1062,11 @@ function mountPostCheck(root, v) {
   root.innerHTML = `
     <h1 class="page-title">סגירת הפעלה</h1>
     <p class="text-muted mt-1 mb-5">${esc(api.unitName(op))}, ${since(op.startTime, "font-semibold text-ink")}</p>
+    <section class="card mb-5">
+      <label class="lbl flex items-center gap-1.5" for="f-end-hours">${secIcon("gauge")}שעות מנוע בסגירה <span class="text-[#B42318]">*</span></label>
+      <input id="f-end-hours" class="inp text-center text-2xl font-bold" dir="ltr" type="number" inputmode="decimal" step="0.1" min="0" placeholder="${esc(pc.engineHours ?? "0")}">
+      <p class="text-xs text-muted mt-1.5">לפי מד שעות המנוע בכלי. בפתיחה נרשם: <b class="text-ink tabular-nums">${esc(pc.engineHours ?? "—")}</b></p>
+    </section>
     <div class="flex items-center justify-between px-1 mb-2">
       <span class="text-sm font-semibold text-muted">לפני שעוזבים את הכלי</span>
       <button type="button" id="btn-all-done" class="btn btn-success btn-sm">${ICONS.check} הכל בוצע</button>
@@ -1056,6 +1108,9 @@ function mountPostCheck(root, v) {
   $("#btn-back", root).onclick = () => { state.closing = false; mountActive(root, v); };
   $("#btn-sign", root).onclick = async (e) => {
     const btn = e.currentTarget;
+    const hoursInput = $("#f-end-hours", root);
+    const endHours = engineHoursCheck(hoursInput.value, pc.engineHours);
+    if (endHours.error) { toast(endHours.error, "error"); hoursInput.focus(); return; }
     const parkedAt = parkInput.value.trim();
     if (checks.craneParked && !parkedAt) {
       toast(`יש לרשום איפה ${op.craneKind || "המנוף"} חונה`, "error");
@@ -1079,6 +1134,7 @@ function mountPostCheck(root, v) {
     const postCheck = Object.fromEntries(POST_ITEMS.map(([k]) => [k, !!checks[k]]));
     postCheck.notes = $("#f-notes", root).value.trim();
     postCheck.parkedLocation = checks.craneParked ? parkedAt : "";
+    postCheck.engineHours = endHours.value;
     if (parkedAt) rememberParking(parkedAt);
     btn.disabled = true;
     btn.textContent = "סוגר…";
@@ -1113,7 +1169,7 @@ const LEVEL_BADGE = {
 const opStatusBadge = (op) => (op.status === "active"
   ? `<span class="badge badge-warn"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>פעיל</span>`
   : op.postCheck?.forcedClose
-    ? `<span class="badge bg-purple-100 text-purple-800">סגירה כפויה</span>`
+    ? `<span class="badge bg-purple-100 text-purple-800">סגירה יזומה</span>`
     : `<span class="badge bg-slate-200 text-slate-700">הושלם</span>`);
 
 function postCheckSummary(op) {
@@ -1121,9 +1177,12 @@ function postCheckSummary(op) {
   if (!pc) return "";
   const missing = POST_ITEMS.filter(([k]) => !pc[k]).map(([, l]) => l);
   const park = pc.parkedLocation ? `<div class="text-xs text-muted">חונה ב: <b class="text-ink">${esc(pc.parkedLocation)}</b></div>` : "";
-  return (missing.length && !pc.forcedClose
+  const used = api.engineHoursUsed(op);
+  const hours = pc.engineHours != null ? `<div class="text-xs text-muted">שעות מנוע בסגירה: <b class="text-ink tabular-nums">${esc(pc.engineHours)}</b>${used != null ? ` (+${used})` : ""}</div>` : "";
+  const forced = pc.forcedClose ? `<span class="text-purple-800 text-xs font-semibold">סגירה יזומה${pc.closedBy ? ` ע"י ${esc(pc.closedBy)}` : ""}</span>` : "";
+  return forced + (missing.length && !pc.forcedClose
     ? `<span class="text-[#B42318] text-xs font-semibold">לא אומת: ${esc(missing.join(", "))}</span>`
-    : pc.forcedClose ? "" : `<span class="text-[#2F7D55] text-xs font-semibold">סגירה מלאה</span>`) + park;
+    : pc.forcedClose ? "" : `<span class="text-[#2F7D55] text-xs font-semibold">סגירה מלאה</span>`) + hours + park;
 }
 
 function drawAlerts(el, ops) {
@@ -1169,7 +1228,7 @@ function drawActiveCards(el, ops, { showSite = false } = {}) {
         <dt class="text-slate-500">שעות מנוע</dt><dd class="font-bold tabular-nums">${esc(op.preCheck?.engineHours)}</dd>
       </dl>
       ${hasIssues(op) ? `<div class="flex flex-wrap gap-1.5 mt-3">${issueChips(op.preCheck)}</div>` : ""}
-      <button class="btn btn-ghost btn-sm w-full mt-3 text-red-700" data-force="${esc(op.id)}">סגירה כפויה</button>
+      <button class="btn btn-ghost btn-sm w-full mt-3 text-red-700" data-force="${esc(op.id)}">סגירה יזומה</button>
     </div>`).join("") : `<div class="sm:col-span-2 lg:col-span-3 card">${empty("אין כלים בהפעלה כרגע")}</div>`;
 }
 
@@ -1221,7 +1280,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
             <td class="td">${esc(op.operatorName)}</td><td class="td">${esc(op.preCheck?.workLocation)}</td>
             <td class="td whitespace-nowrap">${fmtDT(op.startTime)}</td>
             <td class="td whitespace-nowrap">${op.endTime ? fmtDT(op.endTime) : "—"}</td>
-            <td class="td tabular-nums">${dur(op)}</td><td class="td tabular-nums">${esc(op.preCheck?.engineHours)}</td>
+            <td class="td tabular-nums">${dur(op)}</td><td class="td tabular-nums whitespace-nowrap">${esc(op.preCheck?.engineHours)}${op.postCheck?.engineHours != null ? ` ← ${esc(op.postCheck.engineHours)}` : ""}</td>
             <td class="td">${opStatusBadge(op)}</td>
             <td class="td"><div class="flex flex-wrap gap-1">${issueChips(op.preCheck) || `<span class="text-slate-300">—</span>`}</div></td>
             <td class="td max-w-[240px]">${postCheckSummary(op)}${op.postCheck?.notes ? `<div class="text-xs text-slate-600 mt-1">${esc(op.postCheck.notes)}</div>` : ""}</td>
@@ -1294,14 +1353,10 @@ function mountDashboard(container, getSite, { notifyScope = "", getOperators = n
     if (!b) return;
     const op = v.ops.get(b.dataset.force);
     if (!op) return;
-    const ok = await confirmDialog({
-      title: `סגירה כפויה — ${api.unitName(op)}`,
-      html: `<p>ההפעלה של <b>${esc(op.operatorName)}</b> תיסגר ללא בדיקת סגירה של המפעיל, והמנוף ישוחרר.</p>`,
-      confirmText: "סגור הפעלה", danger: true,
-    });
-    if (!ok) return;
+    const input = await forceCloseDialog(op);
+    if (!input) return;
     if (state.viewAs) return toast("מצב תצוגה: הפעולה לא בוצעה", "info");
-    try { await api.forceCloseOperation(op, state.profile.name); toast("ההפעלה נסגרה", "success"); } catch (err) { onErr(err); }
+    try { await api.forceCloseOperation(op, state.profile.name, input); toast("ההפעלה נסגרה", "success"); } catch (err) { onErr(err); }
   });
   return { redraw: draw };
 }
@@ -1782,8 +1837,8 @@ function mountHistory(panel) {
 function exportCsv(ops) {
   const yn = (b) => (b === true ? "תקין" : b === false ? "לא תקין" : "");
   const vy = (b) => (b ? "כן" : "לא");
-  const head = ["סוג", "כלי", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע", "דלק %", "אוראה %",
-    "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "חונה", "מיקום חניה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
+  const head = ["סוג", "כלי", "אתר", "מפעיל", "מיקום", "פתיחה", "סגירה", "משך", "סטטוס", "שעות מנוע בפתיחה", "דלק %", "אוראה %",
+    "שמן", "מים", "רצועות", "שקלים", "חתולים", "תסקיר עד", "רישיון עד", "התראות", "שעות מנוע בסגירה", "שעות מנוע בהפעלה", "נסגר ע\"י", "חונה", "מיקום חניה", "בובה סגורה", "מזגן כבוי", "וילון סגור", "נעול", "הערות"];
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
@@ -1792,6 +1847,7 @@ function exportCsv(ops) {
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
       api.fmtDateStr(pc.inspectionUntil), pc.licenses ? api.fmtDateStr(pc.licenses.craneLicenseExpiry) : "",
       (({ critical, warning }) => [...critical.map((x) => `חמורה: ${x}`), ...warning.map((x) => `ראשונית: ${x}`)].join("; "))(api.analyzePreCheck(pc)),
+      po.engineHours ?? "", api.engineHoursUsed(o) ?? "", po.forcedClose ? po.closedBy || "מנהל" : o.postCheck ? o.operatorName : "",
       ...(o.postCheck ? [vy(po.craneParked), po.parkedLocation || "", ...POST_ITEMS.slice(1).map(([k]) => vy(po[k]))] : ["", "", "", "", "", ""]), po.notes || ""];
   });
   const csv = [head, ...rows].map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
@@ -1931,8 +1987,10 @@ function mountAlertSettings(panel) {
               <input type="number" name="rem.afterHours" min="0.5" max="48" step="0.5" class="inp-sm !w-20 text-center"> שעות</label>
             <label class="flex items-center gap-2 font-bold text-slate-600">ואז כל
               <input type="number" name="rem.repeatHours" min="0" max="24" step="0.5" class="inp-sm !w-20 text-center"> שעות</label>
+            <label class="flex items-center gap-2 font-bold text-slate-600">התראה למנהלים אחרי
+              <input type="number" name="rem.escalateAfter" min="0" max="20" step="1" class="inp-sm !w-20 text-center"> תזכורות</label>
           </div>
-          <p class="text-xs text-slate-400 mt-1">0 בשדה "ואז כל" = תזכורת אחת בלבד. הבדיקה רצה בשרת כל 15 דקות.</p>
+          <p class="text-xs text-slate-400 mt-1">0 בשדה "ואז כל" = תזכורת אחת בלבד. 0 בהתראה למנהלים = בלי התראה למנהלים. ההתראה למנהלים נשלחת למנהל המערך ולמנהל האתר, כדי שיוכלו לסגור את ההפעלה בסגירה יזומה. הבדיקה רצה בשרת כל 15 דקות.</p>
         </div>
         <div class="pt-5 mt-4 border-t border-slate-200">
           <div class="font-extrabold text-lg mb-1">סוגי כלים במערכת</div>
@@ -2078,6 +2136,7 @@ function mountAlertSettings(panel) {
     as.elements["rem.enabled"].checked = !!rem.enabled;
     as.elements["rem.afterHours"].value = rem.afterHours;
     as.elements["rem.repeatHours"].value = rem.repeatHours;
+    as.elements["rem.escalateAfter"].value = rem.escalateAfter ?? 0;
     drawRem();
     drawChecks();
     drawVsev();
@@ -2146,10 +2205,12 @@ function mountAlertSettings(panel) {
       const enabled = as.elements["rem.enabled"].checked;
       const afterHours = Number(as.elements["rem.afterHours"].value);
       const repeatHours = Number(as.elements["rem.repeatHours"].value);
+      const escalateAfter = Number(as.elements["rem.escalateAfter"].value);
+      if (enabled && (!Number.isInteger(escalateAfter) || escalateAfter < 0 || escalateAfter > 20)) return toast("התראה למנהלים: מספר שלם בין 0 ל-20", "error");
       if (enabled && (!Number.isFinite(afterHours) || afterHours < 0.5 || afterHours > 48)) return toast("תזכורת ראשונה: בין חצי שעה ל-48 שעות", "error");
       if (enabled && (!Number.isFinite(repeatHours) || repeatHours < 0 || repeatHours > 24)) return toast("חזרה על התזכורת: בין 0 ל-24 שעות", "error");
       const cur = api.getAlertSettings().activeReminder;
-      data.activeReminder = enabled ? { enabled, afterHours, repeatHours } : { ...cur, enabled: false };
+      data.activeReminder = enabled ? { enabled, afterHours, repeatHours, escalateAfter } : { ...cur, enabled: false };
     }
     if (allTypes) data.excludedTypes = $$("[name=eqtype]", as).filter((x) => !x.checked).map((x) => x.value);
     else data.excludedTypes = api.getAlertSettings().excludedTypes || [];

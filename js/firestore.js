@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611092215";
+import { db } from "./auth.js?v=202611092230";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611092215";
+import { DEFAULTS } from "./config.js?v=202611092230";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -74,7 +74,7 @@ export const DEFAULT_ALERTS = {
   inspection: { severity: "critical", block: true, soonDays: 30 },
   license: { severity: "critical", block: true, soonDays: 30, fields: ["craneLicenseExpiry"] },
   // תזכורת Push למפעיל שהשאיר הפעלה פתוחה (שעות). repeatHours 0 = תזכורת אחת
-  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2 },
+  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2, escalateAfter: 2 },
 };
 /** שדות תוקף ברשומת מנופאי (אוסף operators) */
 export const LICENSE_FIELDS = {
@@ -112,7 +112,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611092215");
+  const { app } = await import("./auth.js?v=202611092230");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -601,11 +601,20 @@ export async function closeOperation(op, postCheck) {
   });
 }
 
-/** סגירה כפויה ע"י מנהל (למשל מפעיל ששכח לסגור) */
-export function forceCloseOperation(op, closedBy) {
+/** שעות מנוע שנרשמו בהפעלה (סגירה פחות פתיחה), או null */
+export function engineHoursUsed(op) {
+  const a = Number(op?.preCheck?.engineHours);
+  const b = Number(op?.postCheck?.engineHours);
+  return Number.isFinite(a) && Number.isFinite(b) && op.postCheck?.engineHours != null ? Math.round((b - a) * 10) / 10 : null;
+}
+
+/** סגירה יזומה ע"י מנהל אתר / מנהל מערך (מפעיל ששכח לסגור, טלפון שהתקלקל וכו') */
+export function forceCloseOperation(op, closedBy, { engineHours = null, parkedLocation = "", reason = "" } = {}) {
   return closeOperation(op, {
-    craneParked: false, bubaClosed: false, acOff: false, curtainClosed: false, craneLocked: false,
-    notes: `נסגר בסגירה כפויה ע"י ${closedBy}`,
+    craneParked: !!parkedLocation, bubaClosed: false, acOff: false, curtainClosed: false, craneLocked: false,
+    parkedLocation,
+    engineHours,
+    notes: `נסגר ע"י ${closedBy}${reason ? `: ${reason}` : ""}`,
     forcedClose: true,
     closedBy,
   });

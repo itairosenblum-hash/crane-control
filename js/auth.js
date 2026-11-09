@@ -7,7 +7,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig } from "./config.js?v=202611090711";
+import { firebaseConfig } from "./config.js?v=202611090735";
 
 // שם אפליקציה נפרד: מערכת הציוד הקיימת (/crane/) רצה על אותו דומיין ואותו פרויקט —
 // כך ההתחברות של שתי המערכות נשמרת בנפרד ולא דורסת זו את זו.

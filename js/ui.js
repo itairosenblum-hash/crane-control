@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611090711";
-import * as api from "./firestore.js?v=202611090711";
-import * as push from "./push.js?v=202611090711";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090711";
+import { login, logout, onAuth } from "./auth.js?v=202611090735";
+import * as api from "./firestore.js?v=202611090735";
+import * as push from "./push.js?v=202611090735";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090735";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -1836,10 +1836,10 @@ function mountAlertSettings(panel) {
   const drawTypes = () => {
     const el = $("#as-types", as);
     if (!allTypes) return;
-    const sel = api.getAlertSettings().equipmentTypes;
+    const excl = api.getAlertSettings().excludedTypes || [];
     el.innerHTML = allTypes.length ? allTypes.map((t) => `
       <label class="flex items-center gap-1.5 font-bold"><input type="checkbox" name="eqtype" value="${esc(t)}" class="w-4 h-4 accent-emerald-600"
-        ${(sel ? sel.includes(t) : api.defaultRelevant(t)) ? "checked" : ""}> ${esc(api.fixTypeName(t))}</label>`).join("")
+        ${excl.includes(t) ? "" : "checked"}> ${esc(api.fixTypeName(t))}</label>`).join("")
       : `<span class="text-slate-400">לא נמצאו סוגי מנופים ברשומות הציוד</span>`;
   };
   api.listEquipment().then((list) => {
@@ -1888,7 +1888,8 @@ function mountAlertSettings(panel) {
       data[k] = { severity: vsev[k], block: as.elements[`${k}.block`].checked, soonDays };
     }
     data.license.fields = Object.keys(api.LICENSE_FIELDS).filter((f) => as.elements[`lic.${f}`].checked);
-    if (allTypes) data.equipmentTypes = $$("[name=eqtype]", as).filter((x) => x.checked).map((x) => x.value);
+    if (allTypes) data.excludedTypes = $$("[name=eqtype]", as).filter((x) => !x.checked).map((x) => x.value);
+    else data.excludedTypes = api.getAlertSettings().excludedTypes || [];
     try {
       await api.saveAlertSettings(data, state.profile.name);
       dirty = false;

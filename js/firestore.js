@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611090711";
+import { db } from "./auth.js?v=202611090735";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611090711";
+import { DEFAULTS } from "./config.js?v=202611090735";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -89,7 +89,8 @@ function mergeAlerts(d = {}) {
   ["fuel", "urea", "inspection", "license"].forEach((k) => { if (d[k]) Object.assign(m[k], d[k]); });
   if (!Array.isArray(m.license.fields)) m.license.fields = [...DEFAULT_ALERTS.license.fields];
   m.license.fields = m.license.fields.filter((f) => f in LICENSE_FIELDS);
-  m.equipmentTypes = Array.isArray(d.equipmentTypes) ? d.equipmentTypes.map(String) : null;
+  // סוגי מנופים שהמנהל הוציא. רשימת הכללה ישנה (equipmentTypes) לא בשימוש: היא חסמה סוגים חדשים כמו עגורנים
+  m.excludedTypes = Array.isArray(d.excludedTypes) ? d.excludedTypes.map(String) : [];
   if (d.checks) Object.keys(m.checks).forEach((k) => { if (["off", "warning", "critical"].includes(d.checks[k])) m.checks[k] = d.checks[k]; });
   return m;
 }
@@ -109,7 +110,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611090711");
+  const { app } = await import("./auth.js?v=202611090735");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -272,7 +273,7 @@ export const fixTypeName = (t) => String(t || "").replace(/מעמיק(\s*טלס�
 export function isRelevantType(type, s = alertSettings) {
   const t = String(type || "").trim();
   if (!RELEVANT_RE.test(t)) return false;
-  return s.equipmentTypes ? s.equipmentTypes.includes(t) : true;
+  return !(s.excludedTypes || []).includes(t);
 }
 export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
 /** שם הסוג המלא כפי שרשום באתר התסקירים (למשל "מנוף נייד"), או "מנוף" כשאין סוג */

@@ -2,7 +2,9 @@
 // notifyOnOperation : הפעלה חדשה עם ליקוי → התראה מיידית למנהלים
 // dailyExpiryDigest : כל בוקר 07:00 — תסקירים ורישיונות שפגו / עומדים לפוג
 // sendTestPush      : כפתור "שלח בדיקה לטלפון" בהגדרות
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+// trackActiveOperator : מי מפעיל כל מנוף כרגע (שם, טלפון, שעת התחלה) — נשמר על רשומת המנוף
+// activeReminder      : תזכורת למפעיל שהשאיר הפעלה פתוחה (לפי ההגדרות של מנהל המערך)
+const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { setGlobalOptions } = require("firebase-functions/v2");
@@ -21,6 +23,7 @@ const LICENSE_FIELDS = {
   tatash: 'תת"ש',
 };
 const DEFAULTS = {
+  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2 },
   inspection: { severity: "critical", soonDays: 30 },
   license: { severity: "critical", soonDays: 30, fields: ["craneLicenseExpiry"] },
 };
@@ -187,4 +190,80 @@ exports.sendTestPush = onCall(async (req) => {
   const s = samples[req.data?.sample] || samples.test;
   const sent = await sendTo([{ ref, fcmTokens: tokens }], { ...s, tag: `sample-${Date.now()}` });
   return { sent };
+});
+
+// ---------- 4. מי מפעיל את המנוף כרגע ----------
+async function setCraneOperator(opId, op) {
+  if (op.external || !op.craneId) return;
+  const craneRef = db.doc(`cranes/${op.craneId}`);
+  const c = await craneRef.get();
+  if (!c.exists) return;
+  const cr = c.data();
+  if (cr.activeOperationId && cr.activeOperationId !== opId) return;
+  let phone = "";
+  try { const u = await db.doc(`craneUsers/${op.operatorId}`).get(); phone = u.exists ? u.data().phone || "" : ""; } catch { /* ignore */ }
+  const patch = { activeOperatorId: op.operatorId || null, activeOperatorName: op.operatorName || "", activeOperatorPhone: phone, activeSince: op.startTime || null };
+  const same = cr.activeOperatorId === patch.activeOperatorId && cr.activeOperatorName === patch.activeOperatorName && cr.activeOperatorPhone === patch.activeOperatorPhone && !!cr.activeSince;
+  if (!same) await craneRef.update(patch);
+}
+
+// הפעלה פעילה → שם המפעיל, הטלפון ושעת ההתחלה נשמרים על המנוף, כדי שמפעילים אחרים באתר יראו מי עובד עליו.
+// הפעלה שנסגרה / נמחקה → השדות מתנקים.
+exports.trackActiveOperator = onDocumentWritten("operations/{opId}", async (event) => {
+  const opId = event.params.opId;
+  const before = event.data?.before?.exists ? event.data.before.data() : null;
+  const after = event.data?.after?.exists ? event.data.after.data() : null;
+  const op = after || before;
+  if (!op || op.external || !op.craneId) return;
+  if (after?.status === "active") return setCraneOperator(opId, after);
+  const craneRef = db.doc(`cranes/${op.craneId}`);
+  const c = await craneRef.get();
+  if (!c.exists) return;
+  const cr = c.data();
+  if (before?.status === "active" || !after) {
+    if (cr.activeOperationId && cr.activeOperationId !== opId) return; // המנוף כבר בהפעלה אחרת
+    if (cr.activeOperatorName || cr.activeOperatorId || cr.activeSince) {
+      const del = admin.firestore.FieldValue.delete();
+      await craneRef.update({ activeOperatorId: del, activeOperatorName: del, activeOperatorPhone: del, activeSince: del });
+    }
+  }
+});
+
+// ---------- 5. תזכורת על הפעלה פתוחה ----------
+// כל 15 דקות: הפעלה שפתוחה יותר מ-afterHours שעות → Push למפעיל שפתח אותה.
+// חוזר כל repeatHours שעות (0 = תזכורת אחת בלבד).
+exports.activeReminder = onSchedule({ schedule: "every 15 minutes", timeZone: "Asia/Jerusalem" }, async () => {
+  const sDoc = await db.doc("craneSettings/alerts").get();
+  const cfg = { ...DEFAULTS.activeReminder, ...((sDoc.exists && sDoc.data().activeReminder) || {}) };
+  const remind = cfg.enabled && cfg.afterHours > 0;
+  const now = Date.now();
+  const ops = await db.collection("operations").where("status", "==", "active").get();
+  let sent = 0;
+  for (const d of ops.docs) {
+    const op = d.data();
+    try { await setCraneOperator(d.id, op); } catch (e) { logger.warn("setCraneOperator", e); } // השלמה להפעלות שנפתחו לפני ההתקנה
+    const start = op.startTime?.toMillis?.();
+    if (!remind || !start || !op.operatorId) continue;
+    const hours = (now - start) / 36e5;
+    if (hours < cfg.afterHours) continue;
+    const last = op.lastReminderAt?.toMillis?.() || 0;
+    if (last && (!(cfg.repeatHours > 0) || now - last < cfg.repeatHours * 36e5 - 60e3)) continue;
+    const uRef = db.doc(`craneUsers/${op.operatorId}`);
+    const u = await uRef.get();
+    const tokens = u.exists ? u.data().fcmTokens || [] : [];
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    const dur = h ? `${h} שעות${m >= 10 ? ` ו-${m} דקות` : ""}` : `${m} דקות`;
+    const unit = op.external ? `מנוף ${serial(op.craneId)}` : `${kind(op.craneKind)} ${serial(op.craneId)}`;
+    if (tokens.length) {
+      sent += await sendTo([{ ref: uRef, fcmTokens: tokens }], {
+        title: `⏱️ ההפעלה של ${unit} עדיין פתוחה`,
+        body: `ההפעלה פתוחה כבר ${dur}. אם סיימת לעבוד, היכנס וסגור את ההפעלה.`,
+        tag: `reminder-${d.id}`,
+        level: "warning",
+      });
+    }
+    await d.ref.update({ lastReminderAt: admin.firestore.FieldValue.serverTimestamp(), reminderCount: admin.firestore.FieldValue.increment(1) });
+  }
+  if (sent) logger.info("active reminders", { sent });
 });

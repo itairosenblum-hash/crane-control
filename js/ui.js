@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611092100";
-import * as api from "./firestore.js?v=202611092100";
-import * as push from "./push.js?v=202611092100";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092100";
+import { login, logout, onAuth } from "./auth.js?v=202611092215";
+import * as api from "./firestore.js?v=202611092215";
+import * as push from "./push.js?v=202611092215";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092215";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -122,6 +122,7 @@ const SEC_PATHS = {
   lid: "M4 9h16v11H4zM2 5h20v4H2zM10 13h4",
   snow: "M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 2 3-2M9 20l3-2 3 2",
   curtain: "M2 3h20M4 3v18h3c1-5 1-11 3-18M20 3v18h-3c-1-5-1-11-3-18",
+  phone: "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z",
   lock: "M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1M8 11V7a4 4 0 0 1 8 0v4M12 15v2",
 };
 /** אייקון בתוך ריבוע מעוגל, לשורות הבדיקה */
@@ -600,6 +601,7 @@ function renderOperator() {
     return;
   }
   shell(`<div id="op-root">${spinner}</div>`, { wide: false });
+  if (getPrefs().push && !state.viewAs) push.currentToken().then((t) => t && api.addPushToken(state.user.uid, t)).catch(() => {});
   const root = $("#op-root");
   const v = { cranes: [], op: undefined, mode: null, opId: null, selected: null, toggles: {}, levels: {} };
 
@@ -630,6 +632,51 @@ function renderOperator() {
 }
 
 // ----- שלב 1: בחירת כלי -----
+/** כלי לא זמין. בהפעלה: מי מפעיל, ממתי, וכפתור חיוג (אולי שכח לסגור) */
+function busyRow(c) {
+  const st = CRANE_STATUS[c.currentStatus];
+  const inUse = c.currentStatus === "in_use";
+  const tel = String(c.activeOperatorPhone || "").replace(/[^\d+]/g, "");
+  const longOpen = inUse && toDate(c.activeSince) && Date.now() - toDate(c.activeSince).getTime() > (api.getAlertSettings().activeReminder?.afterHours || 8) * 36e5;
+  return `
+    <div class="flex items-center gap-3 px-4 py-3">
+      <span class="flex-1 min-w-0">
+        <span class="block font-semibold text-ink">${esc(api.unitName(c))}</span>
+        ${inUse && c.activeOperatorName ? `
+          <span class="block text-[13px] text-muted">בהפעלה ע"י <b class="text-ink">${esc(c.activeOperatorName)}</b></span>
+          ${toDate(c.activeSince) ? `<span class="block text-[13px] ${longOpen ? "text-[#B42318] font-semibold" : "text-muted"}">מ-${fmtTime(c.activeSince)}, כבר ${since(c.activeSince)}</span>` : ""}` : ""}
+      </span>
+      ${inUse && tel ? `<a href="tel:${esc(tel)}" class="icon-btn bg-slate-100 shrink-0" title="חייג ל${esc(c.activeOperatorName)}" aria-label="חייג ל${esc(c.activeOperatorName)}">${secIcon("phone", 18)}</a>` : ""}
+      <span class="badge ${st?.cls || ""} shrink-0">${st?.label || esc(c.currentStatus)}</span>
+    </div>`;
+}
+
+/** הצעה למפעיל להפעיל התראות במכשיר, כדי לקבל תזכורת כשהפעלה נשארת פתוחה */
+function reminderOptIn() {
+  if (state.viewAs || !api.getAlertSettings().activeReminder?.enabled) return "";
+  if (getPrefs().push && "Notification" in window && Notification.permission === "granted") return "";
+  return `
+    <div class="card mt-6 flex items-center gap-3" id="reminder-optin">
+      ${tileIcon("bell")}
+      <div class="flex-1 min-w-0 text-sm"><b class="block text-ink">תזכורת לטלפון</b><span class="text-muted">אם שכחת לסגור הפעלה, תקבל תזכורת אחרי ${fmtHours(api.getAlertSettings().activeReminder.afterHours)}.</span></div>
+      <button type="button" class="btn btn-dark btn-sm shrink-0" data-optin>הפעל</button>
+    </div>`;
+}
+const fmtHours = (h) => (h === 1 ? "שעה" : h === 2 ? "שעתיים" : h < 1 ? `${Math.round(h * 60)} דקות` : `${h} שעות`);
+async function enableOperatorPush(btn) {
+  btn.disabled = true;
+  try {
+    const token = await push.enablePush();
+    await api.addPushToken(state.user.uid, token);
+    await api.saveNotifyPrefs(state.user.uid, { ...getPrefs(), push: true });
+    $("#reminder-optin")?.remove();
+    toast("התזכורות לטלפון הופעלו במכשיר הזה", "success");
+  } catch (err) {
+    toast(/[א-ת]/.test(err?.message || "") ? err.message : errMsg(err), "error");
+    btn.disabled = false;
+  }
+}
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-optin]"); if (b) enableOperatorPush(b); });
 function mountPick(root, v) {
   Object.assign(v, { mode: "pick", opId: null, selected: null, external: null, toggles: {}, levels: {}, submitting: false, started: null });
   drawPick(root, v);
@@ -653,8 +700,8 @@ function drawPick(root, v) {
         <span class="text-slate-300">${ICONS.chevron}</span>
       </button>`).join("")}</div>` : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
     ${busy.length ? `<div class="sec-title mt-6">${secIcon("ban")}לא זמינים</div>
-      <div class="group-list">${busy.map((c) => `
-        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${esc(api.unitName(c))}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}
+      <div class="group-list">${busy.map(busyRow).join("")}</div>` : ""}
+    ${reminderOptIn()}
     <button type="button" id="btn-external" class="btn btn-ghost w-full mt-6 bg-white border border-dashed border-slate-300">מנוף שלא מהיחידה</button>
     <p class="text-xs text-muted text-center mt-1.5">הפעלה על מנוף שלא מהיחידה תדווח למנהלים כחריג</p>`;
   $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; v.external = null; mountCheck(root, v); }; });
@@ -952,6 +999,7 @@ function mountActive(root, v) {
       <div class="flex justify-between px-4 py-3.5"><span class="text-muted">שעות מנוע בפתיחה</span><b class="tabular-nums">${esc(pc.engineHours)}</b></div>
     </div>
     ${(pc.issues || []).length ? `<div class="mt-3 flex flex-wrap gap-1.5">${issueChips(pc)}</div>` : ""}
+    ${reminderOptIn()}
     <div class="fixed bottom-0 inset-x-0 px-4 pt-3 bg-concrete/85 backdrop-blur-xl" style="padding-bottom: calc(env(safe-area-inset-bottom) + 14px)">
       <div class="max-w-xl mx-auto"><button id="btn-end" class="btn btn-primary btn-xl">סיום הפעלה</button></div>
     </div>`;
@@ -1133,6 +1181,7 @@ function drawFleet(el, cranes, { showSite = false } = {}) {
       <div class="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2">
         <span class="w-2.5 h-2.5 rounded-full ${CRANE_STATUS[c.currentStatus]?.dot || "bg-slate-300"}"></span>
         <span class="font-extrabold">${esc(api.serialLabel(c.craneId))}</span>
+        ${c.currentStatus === "in_use" && c.activeOperatorName ? `<span class="text-xs text-muted">${esc(c.activeOperatorName)}</span>` : ""}
         ${showSite ? `<span class="text-xs text-slate-400">${esc(c.site)}</span>` : ""}
         ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
       </div>`).join("") : empty("אין כלים מוגדרים")}</div>`;
@@ -1874,6 +1923,18 @@ function mountAlertSettings(panel) {
             </div>`).join("")}
         </div>
         <div class="pt-5 mt-4 border-t border-slate-200">
+          <div class="font-extrabold text-lg mb-1 flex items-center gap-1.5">${secIcon("clock", 18)}תזכורת להפעלה פתוחה</div>
+          <p class="text-xs text-slate-500 mb-2">התראה לטלפון של המפעיל שפתח את ההפעלה, אם היא עדיין פתוחה (אולי שכח לסגור). המפעיל צריך להפעיל התראות במכשיר שלו (מוצע לו במסך בחירת הכלי).</p>
+          <label class="flex items-center gap-2 font-bold text-sm py-1"><input type="checkbox" name="rem.enabled" class="w-5 h-5 accent-emerald-600"> לשלוח תזכורת</label>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mt-2 text-sm" data-rem-fields>
+            <label class="flex items-center gap-2 font-bold text-slate-600">תזכורת ראשונה אחרי
+              <input type="number" name="rem.afterHours" min="0.5" max="48" step="0.5" class="inp-sm !w-20 text-center"> שעות</label>
+            <label class="flex items-center gap-2 font-bold text-slate-600">ואז כל
+              <input type="number" name="rem.repeatHours" min="0" max="24" step="0.5" class="inp-sm !w-20 text-center"> שעות</label>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">0 בשדה "ואז כל" = תזכורת אחת בלבד. הבדיקה רצה בשרת כל 15 דקות.</p>
+        </div>
+        <div class="pt-5 mt-4 border-t border-slate-200">
           <div class="font-extrabold text-lg mb-1">סוגי כלים במערכת</div>
           <p class="text-xs text-slate-500 mb-2">רק מנופים מהסוגים המסומנים יופיעו בבחירה מתוך מערכת הציוד. מלגזות ומעמיסים לא נכללים במערכת.</p>
           <div id="as-types" class="flex flex-wrap gap-x-4 gap-y-2 text-sm">${spinner}</div>
@@ -1994,6 +2055,12 @@ function mountAlertSettings(panel) {
       bar.style.flexDirection = "row";
     });
   };
+  const drawRem = () => {
+    const on = as.elements["rem.enabled"].checked;
+    $("[data-rem-fields]", as).classList.toggle("opacity-40", !on);
+    $$("[data-rem-fields] input", as).forEach((i) => { i.disabled = !on; });
+  };
+  as.addEventListener("change", (e) => { if (e.target.name === "rem.enabled") drawRem(); });
   const fill = (cfg) => {
     ["fuel", "urea"].forEach((k) => {
       as.elements[`${k}.enabled`].checked = cfg[k].enabled;
@@ -2007,6 +2074,11 @@ function mountAlertSettings(panel) {
       as.elements[`${k}.soonDays`].value = cfg[k].soonDays;
     });
     Object.keys(api.LICENSE_FIELDS).forEach((f) => { as.elements[`lic.${f}`].checked = cfg.license.fields.includes(f); });
+    const rem = cfg.activeReminder || api.DEFAULT_ALERTS.activeReminder;
+    as.elements["rem.enabled"].checked = !!rem.enabled;
+    as.elements["rem.afterHours"].value = rem.afterHours;
+    as.elements["rem.repeatHours"].value = rem.repeatHours;
+    drawRem();
     drawChecks();
     drawVsev();
     drawBars();
@@ -2070,6 +2142,15 @@ function mountAlertSettings(panel) {
       data[k] = { severity: vsev[k], block: as.elements[`${k}.block`].checked, soonDays };
     }
     data.license.fields = Object.keys(api.LICENSE_FIELDS).filter((f) => as.elements[`lic.${f}`].checked);
+    {
+      const enabled = as.elements["rem.enabled"].checked;
+      const afterHours = Number(as.elements["rem.afterHours"].value);
+      const repeatHours = Number(as.elements["rem.repeatHours"].value);
+      if (enabled && (!Number.isFinite(afterHours) || afterHours < 0.5 || afterHours > 48)) return toast("תזכורת ראשונה: בין חצי שעה ל-48 שעות", "error");
+      if (enabled && (!Number.isFinite(repeatHours) || repeatHours < 0 || repeatHours > 24)) return toast("חזרה על התזכורת: בין 0 ל-24 שעות", "error");
+      const cur = api.getAlertSettings().activeReminder;
+      data.activeReminder = enabled ? { enabled, afterHours, repeatHours } : { ...cur, enabled: false };
+    }
     if (allTypes) data.excludedTypes = $$("[name=eqtype]", as).filter((x) => !x.checked).map((x) => x.value);
     else data.excludedTypes = api.getAlertSettings().excludedTypes || [];
     try {

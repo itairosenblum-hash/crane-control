@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611092100";
+import { db } from "./auth.js?v=202611092215";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611092100";
+import { DEFAULTS } from "./config.js?v=202611092215";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -73,6 +73,8 @@ export const DEFAULT_ALERTS = {
   // תוקף תסקיר המנוף (מאוסף equipment) ותוקף רישיון המנופאי
   inspection: { severity: "critical", block: true, soonDays: 30 },
   license: { severity: "critical", block: true, soonDays: 30, fields: ["craneLicenseExpiry"] },
+  // תזכורת Push למפעיל שהשאיר הפעלה פתוחה (שעות). repeatHours 0 = תזכורת אחת
+  activeReminder: { enabled: true, afterHours: 4, repeatHours: 2 },
 };
 /** שדות תוקף ברשומת מנופאי (אוסף operators) */
 export const LICENSE_FIELDS = {
@@ -86,7 +88,7 @@ export const getAlertSettings = () => alertSettings;
 
 function mergeAlerts(d = {}) {
   const m = structuredClone(DEFAULT_ALERTS);
-  ["fuel", "urea", "inspection", "license"].forEach((k) => { if (d[k]) Object.assign(m[k], d[k]); });
+  ["fuel", "urea", "inspection", "license", "activeReminder"].forEach((k) => { if (d[k]) Object.assign(m[k], d[k]); });
   if (!Array.isArray(m.license.fields)) m.license.fields = [...DEFAULT_ALERTS.license.fields];
   m.license.fields = m.license.fields.filter((f) => f in LICENSE_FIELDS);
   // סוגי מנופים שהמנהל הוציא. רשימת הכללה ישנה (equipmentTypes) לא בשימוש: היא חסמה סוגים חדשים כמו עגורנים
@@ -110,7 +112,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611092100");
+  const { app } = await import("./auth.js?v=202611092215");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }

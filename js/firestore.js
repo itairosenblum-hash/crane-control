@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611082323";
+import { db } from "./auth.js?v=202611090701";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611082323";
+import { DEFAULTS } from "./config.js?v=202611090701";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -109,7 +109,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611082323");
+  const { app } = await import("./auth.js?v=202611090701");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -144,7 +144,9 @@ export function analyzePreCheck(pc = {}, s = alertSettings) {
       warning.push(`אין תאריך ${name}`);
     }
   };
-  if ("inspectionUntil" in pc) {
+  // מנוף שלא מהיחידה: אין רשומת תסקיר אצלנו — תמיד חריג (התראה חמורה)
+  if (pc.external) critical.push(`חריג: מנוף שלא מהיחידה${pc.external.unit ? ` (${pc.external.unit})` : ""}`);
+  if ("inspectionUntil" in pc && !pc.external) {
     if (!pc.equipmentId) warning.push("מנוף לא מקושר לרשומת תסקיר");
     else validityCheck(s.inspection, pc.inspectionUntil, "תסקיר מנוף", "תסקיר המנוף אינו בתוקף");
   }
@@ -262,19 +264,20 @@ export async function addCrane({ craneId, site, equipment = null }) {
 export const updateCrane = (id, data) => updateDoc(doc(db, "cranes", id), { ...data, updatedAt: serverTimestamp() });
 export const deleteCrane = (id) => deleteDoc(doc(db, "cranes", id));
 
-// ---------- סוגי כלים: מנופים ומלגזות ----------
-const RELEVANT_RE = /מנוף|מלגז|טלסקופ|crane|forklift|telehandler/i;
+// ---------- סוגי כלים: מנופים בלבד ----------
+const RELEVANT_RE = /מנוף|עגורן|crane/i;
 /** מתקן שגיאת כתיב נפוצה בסוגי הציוד ("מעמיק טלסקופי" → "מעמיס טלסקופי") — לתצוגה בלבד */
 export const fixTypeName = (t) => String(t || "").replace(/מעמיק(\s*טלסקופ)/g, "מעמיס$1");
-/** האם סוג הציוד רלוונטי למערכת (לפי בחירת המנהל, או כברירת מחדל — מנופים ומלגזות) */
+/** האם סוג הציוד רלוונטי למערכת: רק מנופים (מלגזות ומעמיסים לא רלוונטיים), ומתוכם לפי בחירת המנהל */
 export function isRelevantType(type, s = alertSettings) {
   const t = String(type || "").trim();
-  return s.equipmentTypes ? s.equipmentTypes.includes(t) : RELEVANT_RE.test(t);
+  if (!RELEVANT_RE.test(t)) return false;
+  return s.equipmentTypes ? s.equipmentTypes.includes(t) : true;
 }
 export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
-/** שם הסוג המלא כפי שרשום באתר התסקירים (למשל "מלגזה 5 טון"), או "מנוף" כשאין סוג */
+/** שם הסוג המלא כפי שרשום באתר התסקירים (למשל "מנוף נייד"), או "מנוף" כשאין סוג */
 export const kindOf = (type) => fixTypeName(type).trim() || "מנוף";
-/** שם תצוגה לכלי: "מנוף 7206179" / "מלגזה 8812044" */
+/** שם תצוגה לכלי: "מנוף 7206179" */
 export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${x?.craneId ?? ""}`.trim();
 
 // ---------- ציוד (אוסף equipment של אפליקציית התסקירים) ----------
@@ -336,7 +339,7 @@ export function siteNameFor(siteId, sites = []) {
 }
 
 /**
- * מסנכרן כלים ממערכת הציוד: כל מנוף/מלגזה שעוד לא קיים — נוסף; קיים — מתעדכן (אתר, סוג, תסקיר).
+ * מסנכרן כלים ממערכת הציוד: כל מנוף שעוד לא קיים — נוסף; קיים — מתעדכן (אתר, סוג, תסקיר).
  * מחזיר { added, updated, skipped }.
  */
 export async function syncCranesFromEquipment(equipment, sites, cranes) {
@@ -369,7 +372,7 @@ export async function syncCranesFromEquipment(equipment, sites, cranes) {
       existing ? updated++ : added++;
     } catch (e) { console.warn("sync failed", eq.id, e); skipped++; }
   }
-  // כלים שאינם (עוד) מנוף/מלגזה קיים באתר התסקירים — מסומנים כלא זמינים
+  // כלים שאינם (עוד) מנוף קיים באתר התסקירים — מסומנים כלא זמינים
   for (const c of cranes) {
     if (c.retired || (c.equipmentId && relevantIds.has(c.equipmentId)) || c.currentStatus === "in_use") continue;
     try { await updateDoc(doc(db, COL.cranes, c.id), { retired: true, updatedAt: serverTimestamp() }); retired++; } catch (e) { console.warn(e); }
@@ -443,8 +446,55 @@ export async function getOperationsRange(from, to, max = 1000) {
   return s.docs.map(withId);
 }
 
+/** מזהה מנוף חיצוני כפי שהוקלד (בלי תווים שאסורים במזהה מסמך) */
+export const cleanCraneId = (x) => String(x || "").trim().replace(/[\/\s]+/g, "-").slice(0, 40);
+
+/**
+ * פתיחת הפעלה על מנוף שלא מהיחידה: לא קיים באתר התסקירים, ולכן אין בדיקת תסקיר —
+ * ההפעלה נרשמת כחריג (התראה חמורה למנהלים). תוקף הרישיון של המפעיל נבדק כרגיל.
+ */
+async function startExternalOperation({ uid, operatorName, site, preCheck: input, operatorRecordId, external }) {
+  const craneId = cleanCraneId(external.craneId);
+  if (!craneId) throw new AppError("יש להזין מספר צ' של המנוף");
+  const opRef = doc(collection(db, "operations"));
+  await runTransaction(db, async (tx) => {
+    let licenses = null;
+    if (operatorRecordId) {
+      const o = await tx.get(doc(db, "operators", operatorRecordId));
+      licenses = o.exists() ? slimOperator(o).licenses : null;
+    }
+    const preCheck = {
+      ...input,
+      external: { craneId, unit: String(external.unit || "").trim() },
+      equipmentId: null,
+      operatorRecordId,
+      licenses,
+      checkDate: todayStr(),
+    };
+    delete preCheck.inspectionUntil;
+    const a = analyzePreCheck(preCheck);
+    if (a.blockers.length) throw new AppError(`לא ניתן לפתוח הפעלה: ${a.blockers.join(", ")}. פנה למנהל.`);
+    tx.set(opRef, {
+      id: opRef.id,
+      craneId,
+      craneKind: "מנוף חיצוני",
+      external: true,
+      operatorId: uid,
+      operatorName,
+      site,
+      status: "active",
+      startTime: serverTimestamp(),
+      endTime: null,
+      preCheck: { ...preCheck, hasCriticalIssue: a.hasCriticalIssue, hasWarning: a.hasWarning, issues: [...a.critical, ...a.warning] },
+      postCheck: null,
+    });
+  });
+  return opRef.id;
+}
+
 /** פתיחת הפעלה: יוצר רשומת הפעלה ומסמן את המנוף "בהפעלה" — בטרנזקציה אחת */
-export async function startOperation({ craneId, uid, operatorName, site, preCheck: input, operatorRecordId = null }) {
+export async function startOperation({ craneId, uid, operatorName, site, preCheck: input, operatorRecordId = null, external = null }) {
+  if (external) return startExternalOperation({ uid, operatorName, site, preCheck: input, operatorRecordId, external });
   const craneRef = doc(db, "cranes", craneId);
   const opRef = doc(collection(db, "operations"));
   await runTransaction(db, async (tx) => {
@@ -504,13 +554,13 @@ export async function startOperation({ craneId, uid, operatorName, site, preChec
 /** סגירת הפעלה: שומר בדיקת סגירה ומחזיר את המנוף לסטטוס פנוי — בטרנזקציה אחת */
 export async function closeOperation(op, postCheck) {
   const opRef = doc(db, "operations", op.id);
-  const craneRef = doc(db, "cranes", op.craneId);
+  const craneRef = op.external ? null : doc(db, "cranes", op.craneId); // מנוף חיצוני — אין רשומת מנוף לעדכן
   await runTransaction(db, async (tx) => {
     const o = await tx.get(opRef);
-    const c = await tx.get(craneRef);
+    const c = craneRef ? await tx.get(craneRef) : null;
     if (!o.exists() || o.data().status !== "active") throw new AppError("ההפעלה כבר נסגרה");
     tx.update(opRef, { status: "completed", endTime: serverTimestamp(), postCheck });
-    if (c.exists() && c.data().activeOperationId === op.id) {
+    if (c?.exists() && c.data().activeOperationId === op.id) {
       const keepMaintenance = c.data().currentStatus === "maintenance";
       tx.update(craneRef, {
         currentStatus: keepMaintenance ? "maintenance" : "available",

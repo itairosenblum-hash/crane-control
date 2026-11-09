@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611082323";
-import * as api from "./firestore.js?v=202611082323";
-import * as push from "./push.js?v=202611082323";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611082323";
+import { login, logout, onAuth } from "./auth.js?v=202611090701";
+import * as api from "./firestore.js?v=202611090701";
+import * as push from "./push.js?v=202611090701";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090701";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -318,8 +318,8 @@ function shell(inner, { wide = true } = {}) {
 // ---------- שיתוף בוואטסאפ ----------
 function shareWhatsApp() {
   const text = [
-    "🏗️ *בקרת מנופים ומלגזות*",
-    "מערכת לפתיחה וסגירה של הפעלות מנוף ומלגזה, בדיקות לפני הפעלה, ובקרה על תוקף תסקירים ורישיונות.",
+    "🏗️ *בקרת מנופים*",
+    "מערכת לפתיחה וסגירה של הפעלות מנוף, בדיקות לפני הפעלה, ובקרה על תוקף תסקירים ורישיונות.",
     "",
     `🔗 ${SITE_URL}`,
     "",
@@ -452,7 +452,7 @@ function renderLogin() {
       <div class="w-full max-w-sm">
         <div class="w-16 h-16 rounded-[20px] bg-safety flex items-center justify-center mb-8"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#1D2633" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 21V3M4 21h7M7 3h14M7 7l4-4M3 3h4M18 3v6"/><path d="M16.5 9h3l-.5 3h-2z" fill="#1D2633"/></svg></div>
         <h1 class="text-[34px] leading-tight font-bold tracking-tight">בקרת מנופים</h1>
-        <p class="text-muted text-lg mt-2 mb-12">פתיחה וסגירה של הפעלות מנוף ומלגזה, ובקרה על תסקירים ורישיונות.</p>
+        <p class="text-muted text-lg mt-2 mb-12">פתיחה וסגירה של הפעלות מנוף, ובקרה על תסקירים ורישיונות.</p>
         <button id="btn-login" class="btn btn-xl bg-white text-ink shadow-[0_1px_2px_rgba(29,38,51,0.08)] ring-1 ring-ink/10">
           ${GOOGLE_ICON}<span>כניסה עם Google</span>
         </button>
@@ -567,7 +567,7 @@ function renderOperator() {
     // רענון תאריכי התסקיר מאתר התסקירים בכל כניסה (עדכון שם מופיע כאן מיד)
     if (!synced && !state.viewAs) { synced = true; api.syncCraneInspections(list); }
     if (v.mode === "pick") drawPick(root, v);
-    if (v.mode === "check" && !v.submitting && v.started !== v.selected && !v.cranes.some((c) => c.id === v.selected && c.currentStatus === "available")) {
+    if (v.mode === "check" && !v.external && !v.submitting && v.started !== v.selected && !v.cranes.some((c) => c.id === v.selected && c.currentStatus === "available")) {
       toast(`${v.selected} כבר אינו פנוי — בחר כלי אחר`, "error");
       mountPick(root, v);
     }
@@ -589,7 +589,7 @@ function renderOperator() {
 
 // ----- שלב 1: בחירת כלי -----
 function mountPick(root, v) {
-  Object.assign(v, { mode: "pick", opId: null, selected: null, toggles: {}, levels: {}, submitting: false, started: null });
+  Object.assign(v, { mode: "pick", opId: null, selected: null, external: null, toggles: {}, levels: {}, submitting: false, started: null });
   drawPick(root, v);
 }
 function drawPick(root, v) {
@@ -611,8 +611,11 @@ function drawPick(root, v) {
       </button>`).join("")}</div>` : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
     ${busy.length ? `<div class="sec-title mt-6">לא זמינים</div>
       <div class="group-list">${busy.map((c) => `
-        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${api.kindOf(c.equipmentType)} ${esc(c.craneId)}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}`;
-  $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; mountCheck(root, v); }; });
+        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${api.kindOf(c.equipmentType)} ${esc(c.craneId)}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}
+    <button type="button" id="btn-external" class="btn btn-ghost w-full mt-6 bg-white border border-dashed border-slate-300">מנוף שלא מהיחידה</button>
+    <p class="text-xs text-muted text-center mt-1.5">הפעלה על מנוף שלא מהיחידה תדווח למנהלים כחריג</p>`;
+  $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; v.external = null; mountCheck(root, v); }; });
+  $("#btn-external", root).onclick = () => { v.selected = null; v.external = { craneId: "", unit: "" }; mountCheck(root, v); };
 }
 
 // ----- שלב 2: בדיקה לפני הפעלה -----
@@ -643,18 +646,35 @@ function toggleRow(name, label) {
 
 function mountCheck(root, v) {
   Object.assign(v, { mode: "check", toggles: {}, levels: {} });
-  const crane = v.cranes.find((c) => c.id === v.selected);
+  const crane = v.external ? null : v.cranes.find((c) => c.id === v.selected);
   const recent = recentLocations();
   root.innerHTML = `
     <button type="button" id="btn-change" class="text-sm font-medium text-muted mb-1 inline-flex items-center gap-1"><span class="rotate-180">${ICONS.chevron}</span>כל הכלים</button>
+    ${v.external ? `
+    <div class="mb-5">
+      <div class="text-sm text-muted">מנוף שלא מהיחידה</div>
+      <h1 class="page-title">מנוף חיצוני</h1>
+    </div>` : `
     <div class="flex items-end justify-between gap-3 mb-5">
       <div>
         <div class="text-sm text-muted">${api.kindOf(crane?.equipmentType)}</div>
         <h1 class="page-title">${esc(v.selected)}</h1>
       </div>
       ${validityBadge(crane?.inspectionUntil, "inspection", { linked: !!crane?.equipmentId, short: true })}
-    </div>
+    </div>`}
     <form id="pre-form" class="space-y-3" novalidate>
+      ${v.external ? `
+      <section class="card space-y-3 ring-1 ring-[#B42318]/20">
+        <div class="rounded-xl bg-[#FDE8E6] text-[#B42318] text-sm font-semibold p-3">המנוף לא קיים באתר התסקירים של היחידה, ולכן לא ניתן לבדוק את התסקיר שלו. ההפעלה תדווח למנהלים כחריג.</div>
+        <div>
+          <label class="lbl" for="f-ext-id">מספר צ' של המנוף</label>
+          <input id="f-ext-id" name="extCraneId" class="inp text-center text-2xl font-bold" dir="ltr" inputmode="numeric" autocomplete="off" placeholder="צ'">
+        </div>
+        <div>
+          <label class="lbl" for="f-ext-unit">של איזו יחידה?</label>
+          <input id="f-ext-unit" name="extUnit" class="inp" autocomplete="off" placeholder="שם היחידה / הגורם">
+        </div>
+      </section>` : ""}
       <section class="card space-y-3">
         <div>
           <label class="lbl" for="f-loc">מיקום עבודה</label>
@@ -719,11 +739,13 @@ function mountCheck(root, v) {
 }
 
 function collectPreCheck(v, form) {
-  const crane = v.cranes.find((c) => c.id === v.selected);
+  const crane = v.external ? null : v.cranes.find((c) => c.id === v.selected);
   const hours = form.elements.engineHours.value;
+  if (v.external) v.external = { craneId: form.elements.extCraneId.value.trim(), unit: form.elements.extUnit.value.trim() };
   const values = {
     operatorRecordId: me().operatorRecordId || null,
     licenses: me().licenses || null,
+    ...(v.external ? { external: { ...v.external } } : {}),
     ...(crane ? { equipmentId: crane.equipmentId || null, inspectionUntil: crane.inspectionUntil || null } : {}),
     workLocation: form.elements.workLocation.value.trim(),
     engineHours: hours === "" ? null : Number(hours),
@@ -732,6 +754,8 @@ function collectPreCheck(v, form) {
   };
   Object.keys(PRE_TOGGLES).forEach((k) => { values[k] = k in v.toggles ? v.toggles[k] : null; });
   const missing = [];
+  if (v.external && !v.external.craneId) missing.push("מספר צ' של המנוף");
+  if (v.external && !v.external.unit) missing.push("יחידה");
   if (!values.workLocation) missing.push("מיקום");
   if (values.engineHours == null || values.engineHours < 0) missing.push("שעות מנוע");
   if (values.fuelLevel == null) missing.push("דלק");
@@ -758,10 +782,14 @@ async function submitPreCheck(root, v, form) {
   const a = api.analyzePreCheck(values);
   if (a.blockers.length) return toast(`לא ניתן להתחיל: ${a.blockers.join(", ")}`, "error");
   if (missing.length) return toast(`חסר: ${missing.join(", ")}`, "error");
+  if (v.external) {
+    const own = v.cranes.find((c) => String(c.craneId) === api.cleanCraneId(v.external.craneId) && c.equipmentId && !c.retired);
+    if (own) return toast(`מנוף ${own.craneId} שייך ליחידה. בחר אותו מרשימת הכלים`, "error");
+  }
   if (a.level) {
     const ok = await confirmDialog({
-      title: a.level === "critical" ? "נמצאו ליקויים חמורים" : "נמצאו ליקויים",
-      html: `<div class="flex flex-wrap gap-1.5 mb-3">${issueChips(values)}</div><p>הליקויים יועברו למנהלים. להתחיל בכל זאת?</p>`,
+      title: v.external ? "הפעלת מנוף שלא מהיחידה" : a.level === "critical" ? "נמצאו ליקויים חמורים" : "נמצאו ליקויים",
+      html: `<div class="flex flex-wrap gap-1.5 mb-3">${issueChips(values)}</div><p>${v.external ? "ההפעלה תדווח למנהלים כחריג." : "הליקויים יועברו למנהלים."} להתחיל בכל זאת?</p>`,
       confirmText: "התחל בכל זאת", danger: true,
     });
     if (!ok) return;
@@ -769,7 +797,9 @@ async function submitPreCheck(root, v, form) {
   if (!state.viewAs) rememberLocation(values.workLocation);
   if (state.viewAs) { // מצב תצוגה — סימולציה בלבד, לא נשמר
     const crane = v.cranes.find((c) => c.id === v.selected);
-    v.op = { id: "preview", craneId: v.selected, craneKind: api.kindOf(crane?.equipmentType), startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } };
+    v.op = v.external
+      ? { id: "preview", craneId: api.cleanCraneId(v.external.craneId), craneKind: "מנוף חיצוני", external: true, startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } }
+      : { id: "preview", craneId: v.selected, craneKind: api.kindOf(crane?.equipmentType), startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } };
     toast("מצב תצוגה: ההפעלה לא נשמרה", "info");
     return mountActive(root, v);
   }
@@ -785,6 +815,7 @@ async function submitPreCheck(root, v, form) {
       site: me().assignedSite,
       preCheck: values,
       operatorRecordId: me().operatorRecordId || null,
+      external: v.external,
     });
     v.started = v.selected; // המנוף תפוס עכשיו על ידינו — לא להתריע "אינו פנוי"
     toast("ההפעלה החלה. עבודה בטוחה!", "success");
@@ -1228,7 +1259,7 @@ function renderAdmin() {
     if (!v.equipment) { el.textContent = "טוען נתונים ממערכת הציוד…"; return; }
     const rel = v.equipment.filter((e) => api.isRelevantType(e.type)).length;
     const types = [...new Set(v.equipment.map((e) => api.fixTypeName(e.type) || "ללא סוג"))].join(", ");
-    el.innerHTML = `ממערכת הציוד: <b>${v.equipment.length}</b> רשומות ציוד, מתוכן <b>${rel}</b> מנופים ומלגזות · <b>${v.sites.length}</b> אתרים · <b>${v.operators.length}</b> מנופאים
+    el.innerHTML = `ממערכת הציוד: <b>${v.equipment.length}</b> רשומות ציוד, מתוכן <b>${rel}</b> מנופים · <b>${v.sites.length}</b> אתרים · <b>${v.operators.length}</b> מנופאים
       <div class="text-xs text-slate-400 mt-0.5">סוגים שנמצאו: ${esc(types || "—")}</div>`;
   };
   const runSync = async (manual = false) => {
@@ -1429,7 +1460,7 @@ async function handleUserAction(e, v) {
 
 // ----- ניהול מנופים -----
 function drawCraneList(el, cranes) {
-  if (!cranes.length) { el.innerHTML = `<div class="card">${empty("לא נמצאו מנופים או מלגזות באתר התסקירים")}</div>`; return; }
+  if (!cranes.length) { el.innerHTML = `<div class="card">${empty("לא נמצאו מנופים באתר התסקירים")}</div>`; return; }
   const active = cranes.filter((c) => !c.retired);
   const retired = cranes.filter((c) => c.retired);
   const bySite = {};
@@ -1662,7 +1693,7 @@ function mountAlertSettings(panel) {
         </div>
         <div class="pt-5 mt-4 border-t border-slate-200">
           <div class="font-extrabold text-lg mb-1">סוגי כלים במערכת</div>
-          <p class="text-xs text-slate-500 mb-2">רק כלים מהסוגים המסומנים יופיעו בבחירה מתוך מערכת הציוד. ברירת המחדל: מנופים ומלגזות.</p>
+          <p class="text-xs text-slate-500 mb-2">רק מנופים מהסוגים המסומנים יופיעו בבחירה מתוך מערכת הציוד. מלגזות ומעמיסים לא נכללים במערכת.</p>
           <div id="as-types" class="flex flex-wrap gap-x-4 gap-y-2 text-sm">${spinner}</div>
         </div>
         <div class="flex gap-2 mt-5">
@@ -1809,10 +1840,10 @@ function mountAlertSettings(panel) {
     el.innerHTML = allTypes.length ? allTypes.map((t) => `
       <label class="flex items-center gap-1.5 font-bold"><input type="checkbox" name="eqtype" value="${esc(t)}" class="w-4 h-4 accent-emerald-600"
         ${(sel ? sel.includes(t) : api.defaultRelevant(t)) ? "checked" : ""}> ${esc(api.fixTypeName(t))}</label>`).join("")
-      : `<span class="text-slate-400">לא נמצאו סוגים ברשומות הציוד</span>`;
+      : `<span class="text-slate-400">לא נמצאו סוגי מנופים ברשומות הציוד</span>`;
   };
   api.listEquipment().then((list) => {
-    allTypes = [...new Set(list.map((e) => e.type).filter(Boolean))].sort((a, b) => a.localeCompare(b, "he"));
+    allTypes = [...new Set(list.map((e) => e.type).filter((t) => t && api.defaultRelevant(t)))].sort((a, b) => a.localeCompare(b, "he"));
     drawTypes();
   }).catch(() => { $("#as-types", as).textContent = "לא ניתן לטעון את סוגי הציוד"; });
 

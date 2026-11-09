@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611091002";
-import * as api from "./firestore.js?v=202611091002";
-import * as push from "./push.js?v=202611091002";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611091002";
+import { login, logout, onAuth } from "./auth.js?v=202611092045";
+import * as api from "./firestore.js?v=202611092045";
+import * as push from "./push.js?v=202611092045";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611092045";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -418,6 +418,7 @@ onAuth((user) => {
       if (!profile) return;
     }
     state.profile = profile;
+    document.dispatchEvent(new Event("profile-changed"));
     const key = profile ? `${profile.status}|${profile.role}|${profile.assignedSite || ""}` : "none";
     if (key === state.routeKey) return; // שינוי שאינו משפיע על הניתוב
     state.routeKey = key;
@@ -1141,7 +1142,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
 }
 
 /** בונה לוח בקרה מלא בתוך container. site ריק = כל האתרים */
-function mountDashboard(container, getSite, { notifyScope = "", getOperators = null } = {}) {
+function mountDashboard(container, getSite, { notifyScope = "", getOperators = null, onCounts = null } = {}) {
   container.innerHTML = `
     <div id="d-alerts"></div>
     <div id="d-validity"></div>
@@ -1169,6 +1170,11 @@ function mountDashboard(container, getSite, { notifyScope = "", getOperators = n
     drawFleet($("#d-fleet", container), v.cranes.filter(inSite), { showSite });
     drawValidity($("#d-validity", container), v.cranes.filter(inSite), getOperators ? getOperators().filter((o) => !site || o.assignedSite === site) : null);
     drawLog($("#d-log", container), recent, { showSite });
+    if (onCounts) {
+      // ספירה לתגים: כל האתרים, בלי קשר לסינון במסך
+      const all = new Map([...v.recent.filter((o) => (toDate(o.startTime)?.getTime() || Date.now()) >= cutoff), ...v.active].map((o) => [o.id, o]));
+      onCounts({ issueOps: [...all.values()].filter(hasIssues), cranes: v.cranes });
+    }
   };
 
   // התראה על הפעלות חדשות עם ליקויים (רק אחרי הטעינה הראשונה של כל מקור)
@@ -1251,6 +1257,36 @@ function renderSiteManager() {
   mountDashboard($("#dash"), () => site, { notifyScope: site });
 }
 
+// ----- תגי מספרים (תפריט תחתון + סמל האפליקציה) -----
+const BADGE_TONE = { crit: "bg-[#B42318]", warn: "bg-[#D98A00]" };
+/** n: מספר (0 = ללא תג) או true לנקודה בלי מספר */
+function setTabBadge(tab, n, tone = "crit", label = "") {
+  const el = $(`[data-badge="${tab}"]`);
+  if (!el) return;
+  const cls = BADGE_TONE[tone] || BADGE_TONE.crit;
+  el.innerHTML = n === true
+    ? `<span class="block w-2.5 h-2.5 rounded-full ${cls} ring-2 ring-white" title="${esc(label)}"></span>`
+    : n > 0
+      ? `<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full ${cls} ring-2 ring-white text-white text-[10px] font-bold tabular-nums" title="${esc(label)}">${n > 99 ? "99+" : n}</span>`
+      : "";
+  const btn = el.closest("[data-tab]");
+  const name = btn?.querySelector("span:not([data-badge])")?.textContent || "";
+  if (btn) btn.setAttribute("aria-label", n ? `${name} · ${label}${n === true ? "" : ` (${n})`}` : name);
+}
+function setAppBadge(n) {
+  try {
+    if (n > 0) navigator.setAppBadge?.(n)?.catch?.(() => {});
+    else navigator.clearAppBadge?.()?.catch?.(() => {});
+  } catch { /* לא נתמך */ }
+}
+const SEEN_KEY = "cc_seen_alerts";
+function loadSeenAlerts() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || "[]")); } catch { return new Set(); }
+}
+function saveSeenAlerts(set) {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...set].slice(-300))); } catch { /* ignore */ }
+}
+
 // =====================================================================
 // מסך מנהל מערך
 // =====================================================================
@@ -1259,11 +1295,11 @@ function renderAdmin() {
     <div id="pending-banner"></div>
     <nav class="fixed bottom-0 inset-x-0 z-30 bg-white/85 backdrop-blur-xl border-t border-ink/5" style="padding-bottom: env(safe-area-inset-bottom)" role="tablist">
       <div class="max-w-6xl mx-auto grid grid-cols-5">
-        <button class="tab" data-tab="overview" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h4v8H3zM10 3h4v18h-4zM17 8h4v13h-4z"/></svg><span>מצב</span></button>
-        <button class="tab relative" data-tab="users" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg><span>משתמשים</span><span id="tab-pending-cnt" class="absolute top-1 right-[calc(50%-22px)]"></span></button>
-        <button class="tab" data-tab="cranes" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5h3v16M2 21h10M7 5h13M7 9l4-4M20 5v6M18 11h4v3h-4z"/></svg><span>כלים</span></button>
-        <button class="tab" data-tab="history" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg><span>היסטוריה</span></button>
-        <button class="tab" data-tab="alerts" role="tab"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0"/></svg><span>התראות</span></button>
+        <button class="tab relative" data-tab="overview" role="tab"><span data-badge="overview" class="absolute top-1 right-[calc(50%-22px)] pointer-events-none"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h4v8H3zM10 3h4v18h-4zM17 8h4v13h-4z"/></svg><span>מצב</span></button>
+        <button class="tab relative" data-tab="users" role="tab"><span data-badge="users" class="absolute top-1 right-[calc(50%-22px)] pointer-events-none"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 20v-1a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg><span>משתמשים</span></button>
+        <button class="tab relative" data-tab="cranes" role="tab"><span data-badge="cranes" class="absolute top-1 right-[calc(50%-22px)] pointer-events-none"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5h3v16M2 21h10M7 5h13M7 9l4-4M20 5v6M18 11h4v3h-4z"/></svg><span>כלים</span></button>
+        <button class="tab relative" data-tab="history" role="tab"><span data-badge="history" class="absolute top-1 right-[calc(50%-22px)] pointer-events-none"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg><span>היסטוריה</span></button>
+        <button class="tab relative" data-tab="alerts" role="tab"><span data-badge="alerts" class="absolute top-1 right-[calc(50%-22px)] pointer-events-none"></span><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a2 2 0 0 0 3.4 0"/></svg><span>התראות</span></button>
       </div>
     </nav>
     <section data-panel="overview">
@@ -1294,7 +1330,37 @@ function renderAdmin() {
     $$("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
     $$("[data-panel]").forEach((p) => { p.hidden = p.dataset.panel !== t; });
     window.scrollTo(0, 0);
+    if (t === "overview") markAlertsSeen();
   };
+
+  // --- תגי מספרים בתפריט התחתון ובסמל האפליקציה
+  const badges = { users: 0, alertIds: [], critIds: [], activeIssueIds: [], cranesBad: 0, cranesExpired: 0 };
+  const seen = loadSeenAlerts();
+  const overviewVisible = () => v.tab === "overview" && document.visibilityState === "visible";
+  function markAlertsSeen() {
+    if (!overviewVisible()) return;
+    const fresh = badges.alertIds.filter((id) => !seen.has(id));
+    if (!fresh.length) return;
+    fresh.forEach((id) => seen.add(id));
+    saveSeenAlerts(seen);
+    drawBadges();
+  }
+  function drawBadges() {
+    // מצב: הפעלות עם ליקוי שעדיין פעילות, או שעוד לא נצפו
+    const open = badges.alertIds.filter((id) => badges.activeIssueIds.includes(id) || !seen.has(id));
+    const crit = open.some((id) => badges.critIds.includes(id));
+    setTabBadge("overview", open.length, crit ? "crit" : "warn", "התראות פתוחות");
+    setTabBadge("users", badges.users, "crit", "בקשות ממתינות");
+    setTabBadge("cranes", badges.cranesBad, badges.cranesExpired ? "crit" : "warn", "כלים עם בעיית תסקיר");
+    // התראות: נקודה כשהמכשיר הזה לא רשום להתראות לטלפון (לא למפתח, שלא מקבל התראות)
+    setTabBadge("alerts", !isDeveloper() && !getPrefs().push, "crit", "התראות לטלפון לא הופעלו במכשיר זה");
+    setAppBadge(badges.users + open.length);
+  }
+  const onVisible = () => { if (document.visibilityState === "visible") markAlertsSeen(); };
+  document.addEventListener("visibilitychange", onVisible);
+  document.addEventListener("profile-changed", drawBadges);
+  track(() => { document.removeEventListener("visibilitychange", onVisible); document.removeEventListener("profile-changed", drawBadges); setAppBadge(0); });
+
   $$("[data-tab]").forEach((b) => { b.onclick = () => setTab(b.dataset.tab); });
   setTab("overview");
 
@@ -1302,7 +1368,19 @@ function renderAdmin() {
   const siteSel = $("#ov-site");
   // מנופאים ממערכת הציוד (לפאנל התוקף), במבנה שהפאנל מצפה לו
   const legacyOperators = () => (v.operators || []).map((o) => ({ name: o.name, assignedSite: api.siteNameFor(o.siteId, v.sites), operatorRecordId: o.id, licenses: o.licenses }));
-  const dash = mountDashboard($("#ov-dash"), () => siteSel.value, { getOperators: legacyOperators });
+  const dash = mountDashboard($("#ov-dash"), () => siteSel.value, {
+    getOperators: legacyOperators,
+    onCounts: ({ issueOps, cranes }) => {
+      badges.alertIds = issueOps.map((o) => o.id);
+      badges.critIds = issueOps.filter((o) => opLevel(o) === "critical").map((o) => o.id);
+      badges.activeIssueIds = issueOps.filter((o) => o.status === "active").map((o) => o.id);
+      const bad = cranes.filter((c) => !c.equipmentId || isBad(c.inspectionUntil, "inspection"));
+      badges.cranesBad = bad.length;
+      badges.cranesExpired = bad.filter((c) => api.validity(c.inspectionUntil, api.getAlertSettings().inspection.soonDays).state === "expired").length;
+      drawBadges();
+      markAlertsSeen();
+    },
+  });
   siteSel.onchange = () => dash.redraw();
   const refreshSiteSelect = () => {
     const cur = siteSel.value;
@@ -1349,7 +1427,8 @@ function renderAdmin() {
     rememberSites(list.map((u) => ({ site: u.assignedSite })));
     refreshSiteSelect();
     const pending = list.filter((u) => u.status === "pending");
-    $("#tab-pending-cnt").innerHTML = pending.length ? `<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold">${pending.length}</span>` : "";
+    badges.users = pending.length;
+    drawBadges();
     $("#pending-banner").innerHTML = pending.length ? `
       <button class="w-full text-right rounded-2xl bg-white border border-slate-200 px-4 py-3 mb-4 font-bold text-slate-800 flex items-center gap-2" id="go-pending">
         <span class="w-2 h-2 rounded-full bg-[#B42318]"></span> ${pending.length === 1 ? "בקשת הרשאה אחת ממתינה" : `${pending.length} בקשות הרשאה ממתינות`} לאישור <span class="mr-auto text-muted">לטיפול</span>

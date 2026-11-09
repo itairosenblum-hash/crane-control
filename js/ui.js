@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611090957";
-import * as api from "./firestore.js?v=202611090957";
-import * as push from "./push.js?v=202611090957";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090957";
+import { login, logout, onAuth } from "./auth.js?v=202611091002";
+import * as api from "./firestore.js?v=202611091002";
+import * as push from "./push.js?v=202611091002";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611091002";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -619,6 +619,58 @@ function drawPick(root, v) {
   $("#btn-external", root).onclick = () => { v.selected = null; v.external = { craneId: "", unit: "" }; mountCheck(root, v); };
 }
 
+// ----- מנוף שלא מהיחידה: השלמה מהמאגר של אתר התסקירים -----
+const EXT_INFO_NONE = "המנוף לא קיים באתר התסקירים של היחידה, ולכן לא ניתן לבדוק את התסקיר שלו. ההפעלה תדווח למנהלים כחריג.";
+let extPool = null; // [{ eq, site }] — נטען פעם אחת
+async function loadExtPool() {
+  if (extPool) return extPool;
+  const [eqs, sites] = await Promise.all([api.listEquipment(), api.listSites()]);
+  extPool = eqs.filter((e) => api.defaultRelevant(e.type)).map((eq) => ({ eq, site: api.siteNameFor(eq.siteId, sites) }));
+  return extPool;
+}
+function setupExternalLookup(form, v, refresh) {
+  const inp = form.elements.extCraneId, unit = form.elements.extUnit;
+  const box = $("#ext-suggest", form), info = $("#ext-info", form);
+  let pool = [];
+  loadExtPool().then((p) => { pool = p; if (inp.value) onType(); }).catch((e) => console.warn("ext pool", e));
+  const ownOf = (eq) => v.cranes.find((c) => c.equipmentId === eq.id && !c.retired);
+  const showInfo = () => {
+    const m = v.extMatch;
+    if (!m) { info.textContent = EXT_INFO_NONE; return; }
+    info.innerHTML = `<div class="text-ink">${esc(api.kindOf(m.eq.type))} <b>${esc(api.serialLabel(m.eq.tz))}</b>${m.site ? ` · יחידה: <b>${esc(m.site)}</b>` : ""}</div>
+      <div class="mt-1.5">${validityBadge(m.eq.nextInspectionDate, "inspection", { linked: true })}</div>
+      <div class="mt-1.5">המנוף לא שייך ליחידה שלך. ההפעלה תדווח למנהלים כחריג.</div>`;
+  };
+  const choose = (m) => {
+    v.extMatch = m;
+    inp.value = api.serialLabel(m.eq.tz);
+    if (m.site) unit.value = m.site;
+    box.classList.add("hidden");
+    showInfo();
+    if (ownOf(m.eq)) toast(`מנוף ${api.serialLabel(m.eq.tz)} שייך ליחידה. בחר אותו מרשימת הכלים`, "error");
+    refresh();
+  };
+  function onType() {
+    const q = api.normSerial(inp.value);
+    const prev = v.extMatch;
+    v.extMatch = null;
+    const exact = q && pool.find((m) => api.normSerial(m.eq.tz) === q);
+    const hits = q.length >= 2 ? pool.filter((m) => api.normSerial(m.eq.tz).includes(q)).slice(0, 6) : [];
+    if (exact && hits.length <= 1) { v.extMatch = exact; if (exact.site && (!unit.value || unit.value === prev?.site)) unit.value = exact.site; }
+    else if (prev && unit.value === prev.site) unit.value = "";
+    box.innerHTML = hits.filter((m) => m !== v.extMatch).map((m, i) => `
+      <button type="button" class="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-right active:bg-slate-50" data-ext="${pool.indexOf(m)}">
+        <span><b class="text-lg">${esc(api.serialLabel(m.eq.tz))}</b> <span class="text-sm text-muted">${esc(api.kindOf(m.eq.type))}</span></span>
+        <span class="text-sm text-muted">${esc(m.site || "")}</span>
+      </button>`).join("");
+    box.classList.toggle("hidden", !box.innerHTML.trim());
+    showInfo();
+  }
+  inp.addEventListener("input", onType);
+  inp.addEventListener("blur", () => { if (inp.value.trim()) inp.value = v.extMatch ? api.serialLabel(v.extMatch.eq.tz) : inp.value; });
+  box.addEventListener("click", (e) => { const b = e.target.closest("[data-ext]"); if (b) choose(pool[Number(b.dataset.ext)]); });
+}
+
 // ----- שלב 2: בדיקה לפני הפעלה -----
 function levelChips(name, label, key) {
   const c = api.getAlertSettings()[key];
@@ -667,10 +719,11 @@ function mountCheck(root, v) {
     <form id="pre-form" class="space-y-3" novalidate>
       ${v.external ? `
       <section class="card space-y-3 ring-1 ring-[#B42318]/20">
-        <div class="rounded-xl bg-[#FDE8E6] text-[#B42318] text-sm font-semibold p-3">המנוף לא קיים באתר התסקירים של היחידה, ולכן לא ניתן לבדוק את התסקיר שלו. ההפעלה תדווח למנהלים כחריג.</div>
+        <div id="ext-info" class="rounded-xl bg-[#FDE8E6] text-[#B42318] text-sm font-semibold p-3">${EXT_INFO_NONE}</div>
         <div>
           <label class="lbl" for="f-ext-id">מספר צ' של המנוף</label>
           <input id="f-ext-id" name="extCraneId" class="inp text-center text-2xl font-bold" dir="ltr" inputmode="numeric" autocomplete="off" placeholder="צ'">
+          <div id="ext-suggest" class="group-list mt-2 hidden"></div>
         </div>
         <div>
           <label class="lbl" for="f-ext-unit">של איזו יחידה?</label>
@@ -710,6 +763,8 @@ function mountCheck(root, v) {
   refresh();
 
   $("#btn-change", root).onclick = () => mountPick(root, v);
+  v.extMatch = null;
+  if (v.external) setupExternalLookup(form, v, refresh);
   $("#btn-all-ok", root).onclick = () => {
     $$("[data-toggle]", form).forEach((w) => { w.dataset.value = "1"; v.toggles[w.dataset.toggle] = true; });
     refresh();
@@ -743,12 +798,17 @@ function mountCheck(root, v) {
 function collectPreCheck(v, form) {
   const crane = v.external ? null : v.cranes.find((c) => c.id === v.selected);
   const hours = form.elements.engineHours.value;
-  if (v.external) v.external = { craneId: form.elements.extCraneId.value.trim(), unit: form.elements.extUnit.value.trim() };
+  if (v.external) v.external = {
+    craneId: v.extMatch ? api.serialLabel(v.extMatch.eq.tz) : form.elements.extCraneId.value.trim(),
+    unit: form.elements.extUnit.value.trim(),
+    ...(v.extMatch ? { equipmentId: v.extMatch.eq.id } : {}),
+  };
   const values = {
     operatorRecordId: me().operatorRecordId || null,
     licenses: me().licenses || null,
     ...(v.external ? { external: { ...v.external } } : {}),
     ...(crane ? { equipmentId: crane.equipmentId || null, inspectionUntil: crane.inspectionUntil || null } : {}),
+    ...(v.extMatch ? { inspectionUntil: v.extMatch.eq.nextInspectionDate || null } : {}),
     workLocation: form.elements.workLocation.value.trim(),
     engineHours: hours === "" ? null : Number(hours),
     fuelLevel: v.levels.fuelLevel ?? null,
@@ -785,7 +845,7 @@ async function submitPreCheck(root, v, form) {
   if (a.blockers.length) return toast(`לא ניתן להתחיל: ${a.blockers.join(", ")}`, "error");
   if (missing.length) return toast(`חסר: ${missing.join(", ")}`, "error");
   if (v.external) {
-    const own = v.cranes.find((c) => api.normSerial(c.craneId) === api.normSerial(v.external.craneId) && c.equipmentId && !c.retired);
+    const own = v.cranes.find((c) => ((v.extMatch && c.equipmentId === v.extMatch.eq.id) || api.normSerial(c.craneId) === api.normSerial(v.external.craneId)) && c.equipmentId && !c.retired);
     if (own) return toast(`מנוף ${api.serialLabel(own.craneId)} שייך ליחידה. בחר אותו מרשימת הכלים`, "error");
   }
   if (a.level) {
@@ -800,7 +860,7 @@ async function submitPreCheck(root, v, form) {
   if (state.viewAs) { // מצב תצוגה — סימולציה בלבד, לא נשמר
     const crane = v.cranes.find((c) => c.id === v.selected);
     v.op = v.external
-      ? { id: "preview", craneId: api.cleanCraneId(v.external.craneId), craneKind: "מנוף חיצוני", external: true, startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } }
+      ? { id: "preview", craneId: api.cleanCraneId(v.external.craneId), craneKind: v.extMatch ? api.kindOf(v.extMatch.eq.type) : "מנוף חיצוני", external: true, startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } }
       : { id: "preview", craneId: v.selected, craneKind: api.kindOf(crane?.equipmentType), startTime: new Date(), preCheck: { ...values, issues: [...a.critical, ...a.warning] } };
     toast("מצב תצוגה: ההפעלה לא נשמרה", "info");
     return mountActive(root, v);

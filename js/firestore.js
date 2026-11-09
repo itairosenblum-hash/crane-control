@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611090957";
+import { db } from "./auth.js?v=202611091002";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611090957";
+import { DEFAULTS } from "./config.js?v=202611091002";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -110,7 +110,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611090957");
+  const { app } = await import("./auth.js?v=202611091002");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -147,6 +147,8 @@ export function analyzePreCheck(pc = {}, s = alertSettings) {
   };
   // מנוף שלא מהיחידה: אין רשומת תסקיר אצלנו — תמיד חריג (התראה חמורה)
   if (pc.external) critical.push(`חריג: מנוף שלא מהיחידה${pc.external.unit ? ` (${pc.external.unit})` : ""}`);
+  // מנוף מיחידה אחרת שרשום באתר התסקירים: בודקים גם את התסקיר שלו
+  if (pc.external?.equipmentId && "inspectionUntil" in pc) validityCheck(s.inspection, pc.inspectionUntil, "תסקיר מנוף", "תסקיר המנוף אינו בתוקף");
   if ("inspectionUntil" in pc && !pc.external) {
     if (!pc.equipmentId) warning.push("מנוף לא מקושר לרשומת תסקיר");
     else validityCheck(s.inspection, pc.inspectionUntil, "תסקיר מנוף", "תסקיר המנוף אינו בתוקף");
@@ -475,7 +477,14 @@ async function startExternalOperation({ uid, operatorName, site, preCheck: input
   const craneId = cleanCraneId(external.craneId);
   if (!craneId) throw new AppError("יש להזין מספר צ' של המנוף");
   const opRef = doc(collection(db, "operations"));
+  const equipmentId = external.equipmentId || null; // רשום באתר התסקירים (יחידה אחרת)
+  let eqType = null;
   await runTransaction(db, async (tx) => {
+    let inspectionUntil = null;
+    if (equipmentId) {
+      const e = await tx.get(doc(db, "equipment", equipmentId));
+      if (e.exists()) { inspectionUntil = equipmentInspectionDate(e.data()); eqType = e.data().type || null; }
+    }
     let licenses = null;
     if (operatorRecordId) {
       const o = await tx.get(doc(db, "operators", operatorRecordId));
@@ -483,19 +492,20 @@ async function startExternalOperation({ uid, operatorName, site, preCheck: input
     }
     const preCheck = {
       ...input,
-      external: { craneId, unit: String(external.unit || "").trim() },
+      external: { craneId, unit: String(external.unit || "").trim(), ...(equipmentId ? { equipmentId } : {}) },
       equipmentId: null,
       operatorRecordId,
       licenses,
       checkDate: todayStr(),
     };
-    delete preCheck.inspectionUntil;
+    if (equipmentId) preCheck.inspectionUntil = inspectionUntil;
+    else delete preCheck.inspectionUntil;
     const a = analyzePreCheck(preCheck);
     if (a.blockers.length) throw new AppError(`לא ניתן לפתוח הפעלה: ${a.blockers.join(", ")}. פנה למנהל.`);
     tx.set(opRef, {
       id: opRef.id,
       craneId,
-      craneKind: "מנוף חיצוני",
+      craneKind: eqType ? kindOf(eqType) : "מנוף חיצוני",
       external: true,
       operatorId: uid,
       operatorName,

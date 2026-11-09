@@ -1,8 +1,8 @@
 // ===== ממשק המשתמש וניתוב לפי תפקיד =====
-import { login, logout, onAuth } from "./auth.js?v=202611090735";
-import * as api from "./firestore.js?v=202611090735";
-import * as push from "./push.js?v=202611090735";
-import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090735";
+import { login, logout, onAuth } from "./auth.js?v=202611090957";
+import * as api from "./firestore.js?v=202611090957";
+import * as push from "./push.js?v=202611090957";
+import { HISTORY_HOURS, DEVELOPER_EMAILS, ADMIN_EMAILS, SITE_URL, APP_VERSION } from "./config.js?v=202611090957";
 
 // ---------- קבועים ----------
 const ROLE_LABELS = { pending: "ממתין לאישור", operator: "מפעיל מנוף", site_manager: "מנהל אתר", admin: "מנהל מערך" };
@@ -604,14 +604,15 @@ function drawPick(root, v) {
       <button type="button" class="w-full flex items-center gap-3 px-4 py-3.5 text-right active:bg-slate-50" data-crane="${esc(c.id)}">
         <span class="flex-1 min-w-0">
           <span class="block text-[13px] text-muted">${api.kindOf(c.equipmentType)}</span>
-          <span class="block text-2xl font-bold leading-tight tracking-tight">${esc(c.craneId)}</span>
+          <span class="block text-2xl font-bold leading-tight tracking-tight">${esc(api.serialLabel(c.craneId))}</span>
+          ${c.chassis ? `<span class="block text-[13px] text-muted">שילדה: ${esc(c.chassis)}</span>` : ""}
         </span>
         ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
         <span class="text-slate-300">${ICONS.chevron}</span>
       </button>`).join("")}</div>` : `<div class="card">${empty("אין כלים פנויים באתר כרגע")}</div>`}
     ${busy.length ? `<div class="sec-title mt-6">לא זמינים</div>
       <div class="group-list">${busy.map((c) => `
-        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${api.kindOf(c.equipmentType)} ${esc(c.craneId)}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}
+        <div class="flex items-center justify-between px-4 py-3 text-muted"><span>${esc(api.unitName(c))}</span><span class="badge ${CRANE_STATUS[c.currentStatus]?.cls}">${CRANE_STATUS[c.currentStatus]?.label}</span></div>`).join("")}</div>` : ""}
     <button type="button" id="btn-external" class="btn btn-ghost w-full mt-6 bg-white border border-dashed border-slate-300">מנוף שלא מהיחידה</button>
     <p class="text-xs text-muted text-center mt-1.5">הפעלה על מנוף שלא מהיחידה תדווח למנהלים כחריג</p>`;
   $$("[data-crane]", root).forEach((b) => { b.onclick = () => { v.selected = b.dataset.crane; v.external = null; mountCheck(root, v); }; });
@@ -658,7 +659,8 @@ function mountCheck(root, v) {
     <div class="flex items-end justify-between gap-3 mb-5">
       <div>
         <div class="text-sm text-muted">${api.kindOf(crane?.equipmentType)}</div>
-        <h1 class="page-title">${esc(v.selected)}</h1>
+        <h1 class="page-title">${esc(api.serialLabel(crane?.craneId ?? v.selected))}</h1>
+        ${crane?.chassis ? `<div class="text-sm text-muted">שילדה: ${esc(crane.chassis)}</div>` : ""}
       </div>
       ${validityBadge(crane?.inspectionUntil, "inspection", { linked: !!crane?.equipmentId, short: true })}
     </div>`}
@@ -783,8 +785,8 @@ async function submitPreCheck(root, v, form) {
   if (a.blockers.length) return toast(`לא ניתן להתחיל: ${a.blockers.join(", ")}`, "error");
   if (missing.length) return toast(`חסר: ${missing.join(", ")}`, "error");
   if (v.external) {
-    const own = v.cranes.find((c) => String(c.craneId) === api.cleanCraneId(v.external.craneId) && c.equipmentId && !c.retired);
-    if (own) return toast(`מנוף ${own.craneId} שייך ליחידה. בחר אותו מרשימת הכלים`, "error");
+    const own = v.cranes.find((c) => api.normSerial(c.craneId) === api.normSerial(v.external.craneId) && c.equipmentId && !c.retired);
+    if (own) return toast(`מנוף ${api.serialLabel(own.craneId)} שייך ליחידה. בחר אותו מרשימת הכלים`, "error");
   }
   if (a.level) {
     const ok = await confirmDialog({
@@ -843,7 +845,7 @@ function mountActive(root, v) {
       <div class="text-center text-sm font-medium opacity-70">זמן הפעלה</div>
     </div>
     <div class="group-list mt-4">
-      <div class="flex justify-between px-4 py-3.5"><span class="text-muted">כלי</span><b>${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}</b></div>
+      <div class="flex justify-between px-4 py-3.5"><span class="text-muted">כלי</span><b>${esc(api.unitName(op))}</b></div>
       <div class="flex justify-between px-4 py-3.5"><span class="text-muted">מיקום</span><b>${esc(pc.workLocation)}</b></div>
       <div class="flex justify-between px-4 py-3.5"><span class="text-muted">שעות מנוע בפתיחה</span><b class="tabular-nums">${esc(pc.engineHours)}</b></div>
     </div>
@@ -862,7 +864,7 @@ function mountPostCheck(root, v) {
   const checks = {};
   root.innerHTML = `
     <h1 class="page-title">סגירת הפעלה</h1>
-    <p class="text-muted mt-1 mb-5">${esc(op.craneKind || "מנוף")} ${esc(op.craneId)}, ${since(op.startTime, "font-semibold text-ink")}</p>
+    <p class="text-muted mt-1 mb-5">${esc(api.unitName(op))}, ${since(op.startTime, "font-semibold text-ink")}</p>
     <div class="flex items-center justify-between px-1 mb-2">
       <span class="text-sm font-semibold text-muted">לפני שעוזבים את הכלי</span>
       <button type="button" id="btn-all-done" class="btn btn-success btn-sm">${ICONS.check} הכל בוצע</button>
@@ -1002,8 +1004,8 @@ function drawActiveCards(el, ops, { showSite = false } = {}) {
     <div class="card border-r-4 ${opLevel(op) === "critical" ? "border-r-red-500" : opLevel(op) === "warning" ? "border-r-amber-400" : "border-r-slate-200"}">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <div class="text-xs text-slate-500 font-bold">${esc(op.craneKind || "מנוף")}${showSite ? ` · ${esc(op.site)}` : ""}</div>
-          <div class="text-2xl font-black">${esc(op.craneId)}</div>
+          <div class="text-xs text-slate-500 font-bold">${esc(api.kindOf(op.craneKind))}${showSite ? ` · ${esc(op.site)}` : ""}</div>
+          <div class="text-2xl font-black">${esc(api.serialLabel(op.craneId))}</div>
         </div>
         <div class="text-left">
           <div class="text-xs text-slate-500 font-bold">זמן ריצה</div>
@@ -1028,7 +1030,7 @@ function drawFleet(el, cranes, { showSite = false } = {}) {
     <div class="flex flex-wrap gap-2">${cranes.length ? cranes.map((c) => `
       <div class="flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2">
         <span class="w-2.5 h-2.5 rounded-full ${CRANE_STATUS[c.currentStatus]?.dot || "bg-slate-300"}"></span>
-        <span class="font-extrabold">${esc(c.craneId)}</span>
+        <span class="font-extrabold">${esc(api.serialLabel(c.craneId))}</span>
         ${showSite ? `<span class="text-xs text-slate-400">${esc(c.site)}</span>` : ""}
         ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
       </div>`).join("") : empty("אין כלים מוגדרים")}</div>`;
@@ -1064,7 +1066,7 @@ function drawLog(el, ops, { showSite = false } = {}) {
         </tr></thead>
         <tbody>
           ${ops.map((op) => `<tr class="${opLevel(op) === "critical" ? "bg-red-50/60" : opLevel(op) === "warning" ? "bg-amber-50/60" : ""}">
-            <td class="td font-black">${esc(op.craneId)}</td>${showSite ? `<td class="td">${esc(op.site)}</td>` : ""}
+            <td class="td font-black">${esc(api.serialLabel(op.craneId))}</td>${showSite ? `<td class="td">${esc(op.site)}</td>` : ""}
             <td class="td">${esc(op.operatorName)}</td><td class="td">${esc(op.preCheck?.workLocation)}</td>
             <td class="td whitespace-nowrap">${fmtDT(op.startTime)}</td>
             <td class="td whitespace-nowrap">${op.endTime ? fmtDT(op.endTime) : "—"}</td>
@@ -1474,7 +1476,7 @@ function drawCraneList(el, cranes) {
           return `
           <div class="card !p-3" data-crane-id="${esc(c.id)}">
             <div class="flex items-center justify-between gap-2">
-              <div><span class="text-xs font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span> <span class="text-xl font-black">${esc(c.craneId)}</span></div>
+              <div><span class="text-xs font-bold text-slate-500">${api.kindOf(c.equipmentType)}</span> <span class="text-xl font-black">${esc(api.serialLabel(c.craneId))}</span></div>
               ${validityBadge(c.inspectionUntil, "inspection", { linked: !!c.equipmentId, short: true })}
             </div>
             ${c.equipmentLabel ? `<div class="text-xs text-slate-500 mt-1">${esc(c.equipmentLabel)}</div>` : ""}
@@ -1491,7 +1493,7 @@ function drawCraneList(el, cranes) {
     </section>`).join("") + (retired.length ? `
     <section class="mb-5 opacity-70">
       <h3 class="font-black text-slate-500 mb-2">לא קיימים באתר התסקירים (${retired.length})</h3>
-      <div class="flex flex-wrap gap-2">${retired.map((c) => `<span class="badge bg-slate-200 text-slate-600">${esc(c.craneId)} · ${esc(c.site || "")}</span>`).join("")}</div>
+      <div class="flex flex-wrap gap-2">${retired.map((c) => `<span class="badge bg-slate-200 text-slate-600">${esc(api.serialLabel(c.craneId))} · ${esc(c.site || "")}</span>`).join("")}</div>
       <p class="text-xs text-slate-500 mt-1">כלים אלה לא זמינים להפעלה. הם נשמרים רק לצורך ההיסטוריה.</p>
     </section>` : "");
 }
@@ -1539,7 +1541,7 @@ function mountHistory(panel) {
     try {
       const list = await api.getOperationsRange(from, to);
       const has = (val, q) => !q || String(val ?? "").toLowerCase().includes(q.trim().toLowerCase());
-      results = list.filter((o) => has(o.site, f.site) && has(o.craneId, f.crane) && has(o.operatorName, f.operator) && (!f.issues || hasIssues(o)));
+      results = list.filter((o) => has(o.site, f.site) && (has(o.craneId, f.crane) || (!!f.crane && api.normSerial(o.craneId).includes(api.normSerial(f.crane)))) && has(o.operatorName, f.operator) && (!f.issues || hasIssues(o)));
       $("#h-count", panel).textContent = `${results.length} הפעלות${list.length >= 1000 ? " (הוצגו 1000 הראשונות — צמצם טווח)" : ""}`;
       $("#h-csv", panel).disabled = !results.length;
       drawLog($("#h-results", panel), results, { showSite: true });
@@ -1556,7 +1558,7 @@ function exportCsv(ops) {
   const rows = ops.map((o) => {
     const pc = o.preCheck || {};
     const po = o.postCheck || {};
-    return [o.craneKind || "מנוף", o.craneId, o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
+    return [api.kindOf(o.craneKind), api.serialLabel(o.craneId), o.site, o.operatorName, pc.workLocation, fmtDT(o.startTime), o.endTime ? fmtDT(o.endTime) : "",
       opDuration(o) || "", o.status === "active" ? "פעיל" : "הושלם", pc.engineHours, pc.fuelLevel, pc.ureaLevel,
       yn(pc.oilLevelOk), yn(pc.waterLevelOk), yn(pc.strapsOk), yn(pc.shacklesOk), yn(pc.trolleyOk),
       api.fmtDateStr(pc.inspectionUntil), pc.licenses ? api.fmtDateStr(pc.licenses.craneLicenseExpiry) : "",

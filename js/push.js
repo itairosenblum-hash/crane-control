@@ -1,7 +1,7 @@
 // ===== התראות Push לטלפון (Firebase Cloud Messaging) =====
-import { app } from "./auth.js?v=202611090735";
+import { app } from "./auth.js?v=202611090957";
 import { getMessaging, getToken, deleteToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
-import { VAPID_KEY } from "./config.js?v=202611090735";
+import { VAPID_KEY } from "./config.js?v=202611090957";
 
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;

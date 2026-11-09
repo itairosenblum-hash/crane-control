@@ -81,6 +81,18 @@ async function sendTo(users, payload) {
 }
 
 // ---------- 1. הפעלה חדשה עם ליקויים ----------
+// תצוגת כלי כמו באתר התסקירים: "עגורן צ-913007"
+const kind = (t) => {
+  const c = String(t || "").replace(/מעמיק(\s*טלסקופ)/g, "מעמיס$1").trim().replace(/\s+/g, " ");
+  return c === "עגורן" || c.startsWith("עגורן ") ? "עגורן" : c || "מנוף";
+};
+const serial = (v) => {
+  let r = String(v ?? "").trim().replace(/^צ\s*['"׳״`\-–]?\s*/, "").trim();
+  if (!r) return "";
+  if (/^\d[\d\s]*$/.test(r)) r = r.replace(/\s+/g, "");
+  return "צ-" + r;
+};
+
 exports.notifyOnOperation = onDocumentCreated("operations/{opId}", async (event) => {
   const op = event.data?.data();
   if (!op) return;
@@ -90,7 +102,7 @@ exports.notifyOnOperation = onDocumentCreated("operations/{opId}", async (event)
   const users = await recipients({ level, site: op.site });
   if (!users.length) return;
   const sent = await sendTo(users, {
-    title: `${level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — ${op.craneKind || "מנוף"} ${op.craneId}`,
+    title: `${level === "critical" ? "🚨 התראה חמורה" : "⚠️ התראה ראשונית"} — ${kind(op.craneKind)} ${serial(op.craneId)}`,
     body: `${op.operatorName} · ${op.site}\n${(pc.issues || []).join(" · ")}`,
     tag: event.params.opId,
     level,
@@ -118,7 +130,7 @@ exports.dailyExpiryDigest = onSchedule({ schedule: "0 7 * * *", timeZone: "Asia/
     if (date !== (cr.inspectionUntil || null)) await c.ref.update({ inspectionUntil: date, inspectionSyncedAt: admin.firestore.FieldValue.serverTimestamp() });
     const d = daysUntil(date, today);
     if (d == null) continue;
-    const unit = `${String(cr.equipmentType || "מנוף").replace(/מעמיק(\s*טלסקופ)/g, "מעמיס$1").trim()} ${cr.craneId}`;
+    const unit = `${kind(cr.equipmentType)} ${serial(cr.craneId)}`;
     if (d < 0) expired.push(`תסקיר ${unit} (${fmt(date)})`);
     else if (d <= ins.soonDays) soon.push(`תסקיר ${unit} — עוד ${d} ימים`);
   }

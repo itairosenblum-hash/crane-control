@@ -1,10 +1,10 @@
 // ===== שכבת הנתונים (Cloud Firestore) =====
-import { db } from "./auth.js?v=202611090735";
+import { db } from "./auth.js?v=202611090957";
 import {
   collection, doc, getDoc, setDoc as fsSetDoc, updateDoc as fsUpdateDoc, deleteDoc as fsDeleteDoc, onSnapshot, query, where,
   orderBy, limit, getDocs, runTransaction as fsRunTransaction, serverTimestamp, Timestamp, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { DEFAULTS } from "./config.js?v=202611090735";
+import { DEFAULTS } from "./config.js?v=202611090957";
 
 // אוספים של מערכת זו. users ו-meta שייכים למערכת הציוד הקיימת — לא נוגעים בהם.
 // equipment / operators / sites נקראים בלבד.
@@ -110,7 +110,7 @@ export function saveAlertSettings(data, updatedBy) {
 export async function sendTestPush(sample = "test") {
   if (readOnly) throw new AppError("מצב תצוגה: שום פעולה לא נשמרת");
   const { getFunctions, httpsCallable } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
-  const { app } = await import("./auth.js?v=202611090735");
+  const { app } = await import("./auth.js?v=202611090957");
   const res = await httpsCallable(getFunctions(app, "me-west1"), "sendTestPush")({ sample });
   return res.data?.sent || 0;
 }
@@ -239,7 +239,7 @@ export function watchCranes(site, cb, onErr) {
   const ref = collection(db, "cranes");
   const q = site ? query(ref, where("site", "==", site)) : ref;
   return onSnapshot(q, (s) => {
-    cb(s.docs.map(withId).sort((a, b) => String(a.craneId).localeCompare(String(b.craneId), "he", { numeric: true })));
+    cb(s.docs.map(withId).sort((a, b) => normSerial(a.craneId).localeCompare(normSerial(b.craneId), "he", { numeric: true })));
   }, onErr);
 }
 
@@ -276,10 +276,26 @@ export function isRelevantType(type, s = alertSettings) {
   return !(s.excludedTypes || []).includes(t);
 }
 export const defaultRelevant = (type) => RELEVANT_RE.test(String(type || ""));
-/** שם הסוג המלא כפי שרשום באתר התסקירים (למשל "מנוף נייד"), או "מנוף" כשאין סוג */
-export const kindOf = (type) => fixTypeName(type).trim() || "מנוף";
-/** שם תצוגה לכלי: "מנוף 7206179" */
-export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${x?.craneId ?? ""}`.trim();
+// כמו באתר התסקירים: כל סוג שמתחיל ב"עגורן" מוצג כ"עגורן"
+const TYPE_FAMILIES = ["עגורן"];
+/** שם הסוג כפי שמוצג באתר התסקירים (למשל "מנוף נייד", "עגורן"), או "מנוף" כשאין סוג */
+export const kindOf = (type) => {
+  const t = fixTypeName(type).trim().replace(/\s+/g, " ");
+  return TYPE_FAMILIES.find((f) => t === f || t.startsWith(f + " ")) || t || "מנוף";
+};
+/** הצ' בתצורה של אתר התסקירים: "צ-913007" (גם כשנשמר "913007" או "צ' 913007") */
+export function serialLabel(v) {
+  const s = String(v ?? "").trim();
+  if (!s || s === "null" || s === "undefined") return "";
+  let rest = s.replace(/^צ\s*['"׳״`\-–]?\s*/, "").trim();
+  if (!rest) return "";
+  if (/^\d[\d\s]*$/.test(rest)) rest = rest.replace(/\s+/g, "");
+  return "צ-" + rest;
+}
+/** השוואת צ' בלי קידומת, רווחים ומקפים */
+export const normSerial = (v) => String(v || "").replace(/[\s'"׳״`\-–]/g, "").replace(/^צ/, "").toLowerCase();
+/** שם תצוגה לכלי: "עגורן צ-913007" */
+export const unitName = (x) => `${kindOf(x?.equipmentType ?? x?.craneKind)} ${serialLabel(x?.craneId)}`.trim();
 
 // ---------- ציוד (אוסף equipment של אפליקציית התסקירים) ----------
 const TZ_FIELDS = ["serialNumber"]; // הצ' של המנוף ברשומת הציוד
@@ -299,12 +315,13 @@ function slimEquipment(d) {
     type: String(x.type || x.equipmentType || "").trim(),
     siteId: x.siteId ?? null,
     manufacturer: x.manufacturer || "",
-    model: x.model || (x.name && x.name !== (tzField ? x[tzField] : "") ? x.name : ""),
+    chassis: String(x.name || "").trim(), // באתר התסקירים השדה name הוא מספר השילדה
+    model: x.model || "",
     nextInspectionDate: equipmentInspectionDate(x),
     lastInspectionDate: normDate(x.lastCheck ?? x.lastInspectionDate),
   };
 }
-export const equipmentLabel = (e) => [fixTypeName(e.type), `צ' ${e.tz}`, e.manufacturer, e.model].filter(Boolean).join(" · ");
+export const equipmentLabel = (e) => [kindOf(e.type), serialLabel(e.tz), e.chassis && `שילדה: ${e.chassis}`, e.manufacturer, e.model].filter(Boolean).join(" · ");
 
 export async function listEquipment() {
   const s = await getDocs(collection(db, "equipment"));
@@ -350,7 +367,7 @@ export async function syncCranesFromEquipment(equipment, sites, cranes) {
   const relevantIds = new Set(relevant.map((e) => e.id));
   for (const eq of relevant) {
     const site = siteNameFor(eq.siteId, sites);
-    const fields = { equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), equipmentType: eq.type || null, inspectionUntil: eq.nextInspectionDate || null };
+    const fields = { equipmentId: eq.id, equipmentLabel: equipmentLabel(eq), equipmentType: eq.type || null, chassis: eq.chassis || null, inspectionUntil: eq.nextInspectionDate || null };
     const linked = cranes.find((c) => c.equipmentId === eq.id);
     try {
       if (linked) {
@@ -502,7 +519,7 @@ export async function startOperation({ craneId, uid, operatorName, site, preChec
     const c = await tx.get(craneRef);
     if (!c.exists()) throw new AppError("המנוף לא נמצא במערכת");
     const crane = c.data();
-    if (crane.currentStatus !== "available") throw new AppError(`מנוף ${craneId} כבר אינו פנוי — בחר מנוף אחר`);
+    if (crane.currentStatus !== "available") throw new AppError(`מנוף ${serialLabel(craneId)} כבר אינו פנוי — בחר מנוף אחר`);
     // תאריך התסקיר נקרא ישירות מרשומת הציוד — המקור המעודכן ביותר
     // הכלי חייב להיות קיים באתר התסקירים
     if (!crane.equipmentId || crane.retired) throw new AppError("הכלי לא קיים באתר התסקירים ולא ניתן להפעיל אותו");
